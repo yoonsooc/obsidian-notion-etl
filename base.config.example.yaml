@@ -1,0 +1,17 @@
+# 이 파일을 base.config.yaml로 복사한 뒤 실제 값으로 채워서 사용합니다.
+# base.config.yaml은 개인 경로가 포함되므로 커밋하지 않습니다(.gitignore 대상).
+obsidian:
+  vault:
+    toNotion:
+      name: 'MyVault'                          # 옵시디언 볼트 이름 (obsidian:// URI 생성에 사용)
+      path: '/absolute/path/to/vault'          # 볼트 루트 절대경로
+      target: 'Daily'                          # 마이그레이션 소스 디렉토리 (볼트 기준 상대경로)
+      effectiveDate: '2025-01-01'              # 이 날짜 이후(포함)의 노트만 노션으로 이관
+    fromNotion:
+      name: 'MyVault'
+      path: '/absolute/path/to/vault'
+      target: 'Daily-NotionBackup'             # 백업 목적지. 반드시 toNotion.target과 다른 디렉토리
+notion:
+  db:
+    url: 'https://www.notion.so/<32자리ID>?v=...'  # 대상 데이터베이스 URL (ID는 자동 추출)
+    name: 'MyDatabase'

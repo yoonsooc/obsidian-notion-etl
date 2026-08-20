@@ -1,0 +1,7 @@
+.env
+CLAUDE.md
+PRD.md
+base.config.yaml
+/configs/*
+/logs/*
+etl-worker
