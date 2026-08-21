@@ -25,7 +25,7 @@ func run(args []string) error {
 	case "init":
 		return runInit()
 	case "migrate":
-		return errors.New("migrate: not implemented yet (M2)")
+		return runMigrate(args[1:])
 	case "backup":
 		return errors.New("backup: not implemented yet (M3)")
 	default:
@@ -39,7 +39,7 @@ func printUsage() {
 
 Commands:
   init     base.config.yaml과 Notion DB를 검증하고 configs/latest.config.yaml을 생성
-  migrate  Obsidian -> Notion 마이그레이션 (수동 1회성)
+  migrate  Obsidian -> Notion 마이그레이션 (수동 1회성, --dry-run 지원)
   backup   Notion -> Obsidian 백업 (cron 주기 실행 또는 수동)
 `)
 }

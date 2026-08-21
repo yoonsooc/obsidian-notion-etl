@@ -3,6 +3,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path"
@@ -16,6 +17,8 @@ import (
 // VaultTarget은 옵시디언 볼트 내 이관 대상 디렉토리 하나를 가리킨다.
 // Exclude는 target 하위 재귀 스캔에서 제외할 파일의 glob 패턴 목록이다
 // (gitignore처럼 제외 대상만 지정, 상대경로와 파일명 양쪽에 매칭).
+// 변환 규칙(날짜 파생, 속성 매핑)은 설정이 아니라 코드(pipeline.go)에 있다
+// (D10-변환 규칙의 위치).
 type VaultTarget struct {
 	Name          string   `yaml:"name"`
 	Path          string   `yaml:"path"`
@@ -51,12 +54,24 @@ func LoadBase(path string) (*BaseConfig, error) {
 		return nil, fmt.Errorf("base 설정 파일 읽기 실패: %w", err)
 	}
 
-	var cfg BaseConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("base 설정 파싱 실패: %w", err)
+	cfg, err := decodeBase(data)
+	if err != nil {
+		return nil, err
 	}
 	if err := cfg.validate(); err != nil {
 		return nil, err
+	}
+	return cfg, nil
+}
+
+// decodeBase는 base 설정 yaml을 엄격 모드로 파싱한다. 구조체에 없는 키(오타)는
+// 에러로 처리한다. 경로 검증 등은 하지 않으므로 파싱 단계만 따로 테스트할 수 있다.
+func decodeBase(data []byte) (*BaseConfig, error) {
+	var cfg BaseConfig
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&cfg); err != nil {
+		return nil, fmt.Errorf("base 설정 파싱 실패: %w", err)
 	}
 	return &cfg, nil
 }

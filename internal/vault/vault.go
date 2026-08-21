@@ -18,6 +18,7 @@ import (
 // Note는 파싱된 마크다운 노트 한 건이다.
 type Note struct {
 	Filename    string            // 예: "2025-11-05.md"
+	RelPath     string            // 스캔 루트 기준 상대경로 (슬래시 구분). CollectNotes가 채운다
 	Frontmatter map[string]string // 키 -> 값 (값의 양끝 따옴표 제거됨)
 	Body        string            // frontmatter를 제외한 본문 (TrimSpace 적용)
 }
@@ -119,13 +120,12 @@ func trimQuotes(s string) string {
 	return s
 }
 
-// ScanFrontmatterKeys는 dir 하위의 *.md 파일들을 재귀적으로 읽어
-// 등장하는 frontmatter 키의 중복 제거·정렬된 목록을 돌려준다.
-// exclude의 glob 패턴에 걸리는 파일은 gitignore처럼 대상에서 제외한다
-// (Excluded 참조). 개별 파일 읽기 실패는 warn에 경고를 남기고 건너뛴다
-// (PRD 6.2 Continue 정책).
-func ScanFrontmatterKeys(dir string, exclude []string, warn io.Writer) ([]string, error) {
-	seen := make(map[string]struct{})
+// CollectNotes는 dir 하위의 *.md 파일들을 재귀적으로 읽어 파싱된 노트
+// 목록을 돌려준다. exclude의 glob 패턴에 걸리는 파일은 gitignore처럼
+// 대상에서 제외한다 (Excluded 참조). 개별 파일 읽기 실패는 warn에 경고를
+// 남기고 건너뛴다 (PRD 6.2 Continue 정책). 결과는 상대경로 오름차순이다.
+func CollectNotes(dir string, exclude []string, warn io.Writer) ([]Note, error) {
+	var notes []Note
 
 	walkErr := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -164,13 +164,32 @@ func ScanFrontmatterKeys(dir string, exclude []string, warn io.Writer) ([]string
 			return nil
 		}
 		note := ParseNote(d.Name(), string(content))
-		for key := range note.Frontmatter {
-			seen[key] = struct{}{}
-		}
+		note.RelPath = filepath.ToSlash(rel)
+		notes = append(notes, note)
 		return nil
 	})
 	if walkErr != nil {
 		return nil, fmt.Errorf("scan dir %s: %w", dir, walkErr)
+	}
+	// WalkDir는 사전식 순회지만 명시적으로 정렬해 결정적 순서를 보장한다.
+	sort.Slice(notes, func(i, j int) bool { return notes[i].RelPath < notes[j].RelPath })
+	return notes, nil
+}
+
+// ScanFrontmatterKeys는 dir 하위의 *.md 파일들을 재귀적으로 읽어
+// 등장하는 frontmatter 키의 중복 제거·정렬된 목록을 돌려준다.
+// 대상 선정 규칙은 CollectNotes와 같다.
+func ScanFrontmatterKeys(dir string, exclude []string, warn io.Writer) ([]string, error) {
+	notes, err := CollectNotes(dir, exclude, warn)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]struct{})
+	for _, note := range notes {
+		for key := range note.Frontmatter {
+			seen[key] = struct{}{}
+		}
 	}
 
 	keys := make([]string, 0, len(seen))

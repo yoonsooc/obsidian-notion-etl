@@ -84,14 +84,31 @@ func runInit() (err error) {
 		return fmt.Errorf("소스 디렉토리 스캔 실패: %w", err)
 	}
 
-	mapping := buildMapping(keys, ds.Properties, logger)
+	// init은 매핑 규칙의 작성자가 아니라 검증자다 (D5-설정 역할 분리).
+	// 코드에 정의된 규칙(pipeline.go)을 실제 노션 스키마·실제 노트와 대조하고,
+	// 통과한 규칙을 latest에 기록용 스냅샷으로 남긴다 (D10-변환 규칙의 위치).
+	properties := toConfigProperties(ds.Properties)
+	mapping := platinumMapping()
+	dateRules := dailyDateRules()
+	warnings, err := config.ValidateMapping(mapping, properties)
+	if err != nil {
+		return fmt.Errorf("mapping 규칙(pipeline.go) 검증 실패: %w", err)
+	}
+	for _, w := range warnings {
+		logger.Warnf("%s", w)
+	}
+	if err := config.ValidateDateRules("pipeline.dailyDateRules", dateRules); err != nil {
+		return fmt.Errorf("날짜 규칙(pipeline.go) 검증 실패: %w", err)
+	}
+	warnMissingFrontmatterKeys(mapping, keys, logger)
 
 	latest := &config.LatestConfig{}
 	latest.Obsidian.FrontmatterKeys = keys
 	latest.Notion.DatabaseID = db.ID
 	latest.Notion.DataSourceID = ds.ID
-	latest.Notion.Properties = toConfigProperties(ds.Properties)
+	latest.Notion.Properties = properties
 	latest.Mapping = mapping
+	latest.DateFrom = dateRules
 
 	prev, err := config.LoadLatest(latestConfigPath)
 	if err != nil {
@@ -108,7 +125,7 @@ func runInit() (err error) {
 
 	fmt.Printf("노션 DB %q(%s): 데이터 소스 %q, 속성 %d개 확인\n", db.Title, db.ID, db.DataSources[0].Name, len(ds.Properties))
 	fmt.Printf("옵시디언 소스(%s): frontmatter 키 %d개 수집\n", base.SourceDir(), len(keys))
-	fmt.Printf("매핑 %d건 생성, %s 저장 완료\n", len(mapping), latestConfigPath)
+	fmt.Printf("매핑 규칙 %d건 검증(경고 %d건), %s 저장 완료\n", len(mapping), len(warnings), latestConfigPath)
 	if archived {
 		fmt.Printf("설정이 변경되어 기존 설정을 %s에 아카이빙함\n", configBackupDir)
 	}
@@ -118,30 +135,30 @@ func runInit() (err error) {
 	return nil
 }
 
-// buildMapping은 frontmatter 키와 노션 속성 이름을 대소문자 무시로 매칭한다.
-// title/date/url 타입 속성은 파일명에서 파생되므로 매핑 대상에서 제외하고,
-// 매칭에 실패한 키는 warn(실행 로그 파일)에 안내한다.
-func buildMapping(keys []string, properties []notion.Property, warn io.Writer) []config.MappingEntry {
-	byLowerName := make(map[string]notion.Property, len(properties))
-	for _, p := range properties {
-		byLowerName[strings.ToLower(p.Name)] = p
-	}
-
-	mapping := make([]config.MappingEntry, 0, len(keys))
+// warnMissingFrontmatterKeys는 매핑이 참조하는 frontmatter 키가 실제 노트들에서
+// 발견되지 않는 경우를 경고한다 (FR-1 5항: 규칙과 실데이터의 대조).
+// 실제 매핑 조회(PropertyMapper)는 정확 일치이므로 검증도 정확 일치가 기준이고,
+// 대소문자만 다른 키가 있으면 별도 경고로 구분해 안내한다.
+func warnMissingFrontmatterKeys(mapping []config.MappingEntry, keys []string, warn io.Writer) {
+	exact := make(map[string]struct{}, len(keys))
+	byFold := make(map[string]string, len(keys))
 	for _, key := range keys {
-		p, ok := byLowerName[strings.ToLower(key)]
-		if !ok {
-			fmt.Fprintf(warn, "매핑 제외: frontmatter 키 %q에 대응하는 노션 속성이 없음\n", key)
-			continue
-		}
-		switch p.Type {
-		case "title", "date", "url":
-			fmt.Fprintf(warn, "매핑 제외: 노션 속성 %q(%s)는 파일명에서 파생되므로 건너뜀\n", p.Name, p.Type)
-			continue
-		}
-		mapping = append(mapping, config.MappingEntry{Frontmatter: key, NotionProperty: p.Name})
+		exact[key] = struct{}{}
+		byFold[strings.ToLower(key)] = key
 	}
-	return mapping
+	for _, m := range mapping {
+		if m.Frontmatter == "" {
+			continue
+		}
+		if _, ok := exact[m.Frontmatter]; ok {
+			continue
+		}
+		if actual, ok := byFold[strings.ToLower(m.Frontmatter)]; ok {
+			fmt.Fprintf(warn, "mapping(%s): frontmatter 키 %q가 노트의 %q와 대소문자가 달라 매칭되지 않음\n", m.NotionProperty, m.Frontmatter, actual)
+			continue
+		}
+		fmt.Fprintf(warn, "mapping(%s): frontmatter 키 %q가 스캔된 노트들에서 발견되지 않음\n", m.NotionProperty, m.Frontmatter)
+	}
 }
 
 // toConfigProperties는 노션 스키마 속성을 설정 파일 표현으로 변환한다.

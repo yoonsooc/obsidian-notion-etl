@@ -17,12 +17,6 @@ type Property struct {
 	Type string `yaml:"type"`
 }
 
-// MappingEntry는 옵시디언 프론트매터 키와 노션 속성의 대응 관계 하나를 나타낸다.
-type MappingEntry struct {
-	Frontmatter    string `yaml:"frontmatter"`
-	NotionProperty string `yaml:"notionProperty"`
-}
-
 // State는 파이프라인 실행 이력을 나타낸다.
 type State struct {
 	FirstRunAt       string `yaml:"firstRunAt"`
@@ -41,8 +35,9 @@ type LatestConfig struct {
 		DataSourceID string     `yaml:"dataSourceId"`
 		Properties   []Property `yaml:"properties"`
 	} `yaml:"notion"`
-	Mapping []MappingEntry `yaml:"mapping"`
-	State   State          `yaml:"state"`
+	Mapping  []MappingEntry `yaml:"mapping"`
+	DateFrom []DateRule     `yaml:"dateFrom,omitempty"`
+	State    State          `yaml:"state"`
 }
 
 // LoadLatest는 latest.config.yaml을 읽는다. 파일이 없으면 (nil, nil)을 반환한다.
