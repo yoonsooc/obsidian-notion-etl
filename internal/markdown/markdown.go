@@ -11,6 +11,9 @@ import (
 // chunkLimit은 노션 rich_text content의 최대 길이(rune 기준)다.
 const chunkLimit = 2000
 
+// maxRichTextPerBlock은 블록 하나의 rich_text 배열이 가질 수 있는 최대 원소 수다.
+const maxRichTextPerBlock = 100
+
 // ToBlocks는 마크다운 본문을 노션 블록으로 변환한다.
 // 변환 규칙 (줄 단위):
 //   - "# " / "## " / "### "         -> heading_1/2/3 ("#### " 이상은 heading_3 폴백)
@@ -22,9 +25,11 @@ const chunkLimit = 2000
 // 문단 경계로만 작동한다. 현재 블록 타입 집합에 divider가 없으므로,
 // 리터럴 "---" 문단을 남기는 것보다 생략하는 쪽이 원문 의도에 가깝기 때문이다.
 //
-// 모든 블록 텍스트는 notion.ChunkText(text, 2000)를 통과하며, 2,000자(rune)를
-// 넘는 텍스트는 같은 타입 블록 여러 개로 이어 붙인다. 빈 본문은 빈 슬라이스를 반환한다.
-func ToBlocks(body string) []notion.Block {
+// 각 블록의 텍스트는 인라인 파서(parseInline)를 거쳐 서식 있는 rich_text로
+// 변환된다 (task-012). vaultName은 [[위키링크]]의 옵시디언 URI 생성에 쓰인다.
+// rich_text 원소는 2,000자(rune) 단위로 분할되고, 블록당 원소 100개를 넘으면
+// 같은 타입 블록 여러 개로 이어 붙인다. 빈 본문은 빈 슬라이스를 반환한다.
+func ToBlocks(body, vaultName string) []notion.Block {
 	lines := strings.Split(body, "\n")
 	blocks := make([]notion.Block, 0, len(lines))
 
@@ -36,7 +41,7 @@ func ToBlocks(body string) []notion.Block {
 		}
 		text := strings.Join(para, "\n")
 		para = para[:0]
-		blocks = appendChunked(blocks, text, notion.NewParagraph)
+		blocks = appendRich(blocks, text, vaultName, notion.NewParagraphRich)
 	}
 
 	for _, raw := range lines {
@@ -50,22 +55,22 @@ func ToBlocks(body string) []notion.Block {
 		}
 		if level, text, ok := parseHeading(marker); ok {
 			flush()
-			blocks = appendChunked(blocks, text, func(chunk string) notion.Block {
-				return notion.NewHeading(level, chunk)
+			blocks = appendRich(blocks, text, vaultName, func(rt []notion.RichText) notion.Block {
+				return notion.NewHeadingRich(level, rt)
 			})
 			continue
 		}
 		// to_do 마커("- [ ] ")는 불릿 마커("- ")를 포함하므로 먼저 검사한다.
 		if text, checked, ok := parseToDo(marker); ok {
 			flush()
-			blocks = appendChunked(blocks, text, func(chunk string) notion.Block {
-				return notion.NewToDo(chunk, checked)
+			blocks = appendRich(blocks, text, vaultName, func(rt []notion.RichText) notion.Block {
+				return notion.NewToDoRich(rt, checked)
 			})
 			continue
 		}
 		if text, ok := parseBullet(marker); ok {
 			flush()
-			blocks = appendChunked(blocks, text, notion.NewBulletedItem)
+			blocks = appendRich(blocks, text, vaultName, notion.NewBulletedItemRich)
 			continue
 		}
 		para = append(para, line)
@@ -74,17 +79,38 @@ func ToBlocks(body string) []notion.Block {
 	return blocks
 }
 
-// appendChunked는 텍스트를 2,000자 단위로 나눠 같은 타입 블록 여러 개로 덧붙인다.
+// appendRich는 텍스트를 인라인 파싱한 뒤 노션 제약(원소당 2,000자, 블록당
+// 원소 100개)에 맞춰 같은 타입 블록 하나 이상으로 덧붙인다.
 // 텍스트가 비어 있으면 빈 텍스트 블록 하나를 만든다 (마커만 있는 줄도 블록으로 유지).
-func appendChunked(blocks []notion.Block, text string, build func(string) notion.Block) []notion.Block {
-	chunks := notion.ChunkText(text, chunkLimit)
-	if len(chunks) == 0 {
-		return append(blocks, build(""))
+func appendRich(blocks []notion.Block, text, vaultName string, build func([]notion.RichText) notion.Block) []notion.Block {
+	spans := splitLongSpans(parseInline(text, vaultName))
+	if len(spans) == 0 {
+		return append(blocks, build(notion.PlainText("")))
 	}
-	for _, chunk := range chunks {
-		blocks = append(blocks, build(chunk))
+	for start := 0; start < len(spans); start += maxRichTextPerBlock {
+		end := min(start+maxRichTextPerBlock, len(spans))
+		blocks = append(blocks, build(spans[start:end]))
 	}
 	return blocks
+}
+
+// splitLongSpans는 2,000자(rune)를 넘는 rich text 원소를 같은 서식의
+// 원소 여러 개로 분할한다.
+func splitLongSpans(spans []notion.RichText) []notion.RichText {
+	out := make([]notion.RichText, 0, len(spans))
+	for _, span := range spans {
+		chunks := notion.ChunkText(span.Text.Content, chunkLimit)
+		if len(chunks) <= 1 {
+			out = append(out, span)
+			continue
+		}
+		for _, chunk := range chunks {
+			split := span
+			split.Text.Content = chunk
+			out = append(out, split)
+		}
+	}
+	return out
 }
 
 // isRule은 대시('-')로만 이루어진 3자 이상의 줄(수평선)인지 판별한다.

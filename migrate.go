@@ -31,6 +31,7 @@ type migrateEnv struct {
 	dateProp      string            // date 타입 속성 이름 (없으면 빈 문자열)
 	urlProp       string            // url 타입 속성 이름 (없으면 빈 문자열)
 	typeByName    map[string]string // 노션 속성 이름 -> 타입
+	vaultName     string            // 옵시디언 볼트 이름 (본문 위키링크 URI 생성용)
 	effectiveDate time.Time         // 제로값이면 게이트 없음
 	dryRun        bool
 
@@ -210,6 +211,7 @@ func newMigrateEnv(token string, base *config.BaseConfig, latest *config.LatestC
 	}
 
 	// 변환 규칙은 코드에 있다 (D10-변환 규칙의 위치). latest 스냅샷은 기록용이다.
+	env.vaultName = toNotion.Name
 	env.chain = buildPipeline(toNotion.Name, toNotion.Target, latest.Notion.Properties)
 	return env, nil
 }
@@ -266,7 +268,7 @@ func (env *migrateEnv) processNote(ctx context.Context, note vault.Note) string 
 	}
 
 	properties := env.buildProperties(draft, note.RelPath)
-	blocks := markdown.ToBlocks(note.Body)
+	blocks := markdown.ToBlocks(note.Body, env.vaultName)
 
 	if env.dryRun {
 		env.logger.Infof("[dry-run] 생성 예정 %s: 제목 %q, 날짜 %q, 블록 %d개, 속성 %d개",

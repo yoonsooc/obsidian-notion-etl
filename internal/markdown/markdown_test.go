@@ -136,7 +136,7 @@ func TestToBlocks(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ToBlocks(tt.body)
+			got := ToBlocks(tt.body, "TestVault")
 			if len(got) == 0 && len(tt.want) == 0 {
 				return
 			}
@@ -147,6 +147,178 @@ func TestToBlocks(t *testing.T) {
 	}
 }
 
+// styled는 서식 있는 rich text 원소를 만드는 테스트 헬퍼다.
+func styled(text string, ann notion.Annotations) notion.RichText {
+	return notion.RichText{Type: "text", Text: notion.Text{Content: text}, Annotations: &ann}
+}
+
+// wikiSpans는 위키링크 하나가 만드는 두 원소(밑줄 문서명 + 복사용 URI 텍스트)를
+// 만드는 테스트 헬퍼다 (인라인 obsidian:// 링크는 API가 거부해 텍스트로 병기).
+func wikiSpans(label, uri string) []notion.RichText {
+	return []notion.RichText{
+		styled(label, notion.Annotations{Underline: true}),
+		notion.PlainText(" (" + uri + ")")[0],
+	}
+}
+
+func TestParseInline(t *testing.T) {
+	plain := func(s string) notion.RichText { return notion.PlainText(s)[0] }
+
+	tests := []struct {
+		name string
+		text string
+		want []notion.RichText
+	}{
+		{
+			name: "서식 없는 텍스트",
+			text: "그냥 텍스트",
+			want: []notion.RichText{plain("그냥 텍스트")},
+		},
+		{
+			name: "bold",
+			text: "앞 **굵게** 뒤",
+			want: []notion.RichText{
+				plain("앞 "),
+				styled("굵게", notion.Annotations{Bold: true}),
+				plain(" 뒤"),
+			},
+		},
+		{
+			name: "italic",
+			text: "앞 *기울임* 뒤",
+			want: []notion.RichText{
+				plain("앞 "),
+				styled("기울임", notion.Annotations{Italic: true}),
+				plain(" 뒤"),
+			},
+		},
+		{
+			name: "취소선과 인라인 코드",
+			text: "~~취소~~ `code`",
+			want: []notion.RichText{
+				styled("취소", notion.Annotations{Strikethrough: true}),
+				plain(" "),
+				styled("code", notion.Annotations{Code: true}),
+			},
+		},
+		{
+			name: "bold+italic 삼중 마커",
+			text: "***둘 다***",
+			want: []notion.RichText{
+				styled("둘 다", notion.Annotations{Bold: true, Italic: true}),
+			},
+		},
+		{
+			name: "bold 안의 italic 중첩",
+			text: "**굵게 *기울임* 굵게**",
+			want: []notion.RichText{
+				styled("굵게 ", notion.Annotations{Bold: true}),
+				styled("기울임", notion.Annotations{Bold: true, Italic: true}),
+				styled(" 굵게", notion.Annotations{Bold: true}),
+			},
+		},
+		{
+			name: "코드 스팬 내부는 서식 해석 안 함",
+			text: "`**not bold**`",
+			want: []notion.RichText{
+				styled("**not bold**", notion.Annotations{Code: true}),
+			},
+		},
+		{
+			name: "짝 없는 마커는 리터럴",
+			text: "짝 없는 **마커",
+			want: []notion.RichText{plain("짝 없는 **마커")},
+		},
+		{
+			name: "수식의 별표는 리터럴 (공백 가드)",
+			text: "2 * 3 * 6",
+			want: []notion.RichText{plain("2 * 3 * 6")},
+		},
+		{
+			name: "위키링크는 밑줄 문서명 + URI 텍스트",
+			text: "참고: [[다른 문서]]",
+			want: append([]notion.RichText{plain("참고: ")},
+				wikiSpans("다른 문서", "obsidian://open?vault=TestVault&file=%EB%8B%A4%EB%A5%B8%20%EB%AC%B8%EC%84%9C")...),
+		},
+		{
+			name: "별칭 위키링크",
+			text: "[[DN_260101|새해 노트]] 참조",
+			want: append(wikiSpans("새해 노트", "obsidian://open?vault=TestVault&file=DN_260101"),
+				plain(" 참조")),
+		},
+		{
+			name: "닫히지 않은 위키링크는 리터럴",
+			text: "[[미완성",
+			want: []notion.RichText{plain("[[미완성")},
+		},
+		{
+			// 닫히지 않은 [[가 다음 줄의 진짜 위키링크를 삼키면 안 된다.
+			name: "위키링크는 줄을 넘지 않음",
+			text: "가 [[미완성\n나 [[진짜]] 다",
+			want: append(append([]notion.RichText{plain("가 [[미완성\n나 ")},
+				wikiSpans("진짜", "obsidian://open?vault=TestVault&file=%EC%A7%84%EC%A7%9C")...),
+				plain(" 다")),
+		},
+		{
+			// 닫는 **가 코드 스팬 안에 있으면 마커로 매칭하지 않는다.
+			name: "코드 스팬 안의 마커와 매칭 금지",
+			text: "a**b `c**d`",
+			want: []notion.RichText{
+				plain("a**b "),
+				styled("c**d", notion.Annotations{Code: true}),
+			},
+		},
+		{
+			// 공백 가드는 bold에도 적용된다 (원문에 없던 서식 방지).
+			name: "bold 공백 가드",
+			text: "2 ** 10은 1024, 2 ** 20은",
+			want: []notion.RichText{plain("2 ** 10은 1024, 2 ** 20은")},
+		},
+		{
+			name: "위키링크의 헤딩 앵커는 URI 대상에서 제거",
+			text: "[[문서#섹션]]",
+			want: wikiSpans("문서#섹션", "obsidian://open?vault=TestVault&file=%EB%AC%B8%EC%84%9C"),
+		},
+		{
+			name: "위키링크의 블록 앵커도 제거",
+			text: "[[문서#^abc123|별칭]]",
+			want: wikiSpans("별칭", "obsidian://open?vault=TestVault&file=%EB%AC%B8%EC%84%9C"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseInline(tt.text, "TestVault")
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("parseInline(%q) = %+v, want %+v", tt.text, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestToBlocksInline은 인라인 서식이 블록 변환과 통합되어 동작하는지 검증한다.
+func TestToBlocksInline(t *testing.T) {
+	got := ToBlocks("- [ ] **중요** 할 일", "TestVault")
+	want := []notion.Block{
+		notion.NewToDoRich([]notion.RichText{
+			styled("중요", notion.Annotations{Bold: true}),
+			notion.PlainText(" 할 일")[0],
+		}, false),
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ToBlocks 인라인 통합 = %+v, want %+v", got, want)
+	}
+}
+
+// plainSpans는 서식 없는 텍스트 여러 개로 rich_text 배열을 만드는 테스트 헬퍼다.
+func plainSpans(texts ...string) []notion.RichText {
+	spans := make([]notion.RichText, 0, len(texts))
+	for _, text := range texts {
+		spans = append(spans, notion.PlainText(text)...)
+	}
+	return spans
+}
+
 func TestToBlocksChunking(t *testing.T) {
 	tests := []struct {
 		name string
@@ -154,39 +326,38 @@ func TestToBlocksChunking(t *testing.T) {
 		want []notion.Block
 	}{
 		{
-			name: "2000자 초과 문단은 같은 타입으로 분할(한글 rune 경계)",
+			// 2,000자 초과는 블록을 쪼개지 않고 한 블록 안에서 rich_text
+			// 원소만 분할한다 (노션에서 하나의 연속 문단으로 렌더링됨).
+			name: "2000자 초과 문단은 한 블록 안에서 원소 분할(한글 rune 경계)",
 			body: strings.Repeat("가", 2500),
 			want: []notion.Block{
-				notion.NewParagraph(strings.Repeat("가", 2000)),
-				notion.NewParagraph(strings.Repeat("가", 500)),
+				notion.NewParagraphRich(plainSpans(strings.Repeat("가", 2000), strings.Repeat("가", 500))),
 			},
 		},
 		{
-			name: "정확히 2000자는 블록 하나",
+			name: "정확히 2000자는 원소 하나",
 			body: strings.Repeat("나", 2000),
 			want: []notion.Block{notion.NewParagraph(strings.Repeat("나", 2000))},
 		},
 		{
-			name: "todo 분할 시 checked 유지",
+			name: "todo 분할 시 한 체크박스 유지",
 			body: "- [x] " + strings.Repeat("다", 2100),
 			want: []notion.Block{
-				notion.NewToDo(strings.Repeat("다", 2000), true),
-				notion.NewToDo(strings.Repeat("다", 100), true),
+				notion.NewToDoRich(plainSpans(strings.Repeat("다", 2000), strings.Repeat("다", 100)), true),
 			},
 		},
 		{
 			name: "불릿 분할",
 			body: "- " + strings.Repeat("라", 2001),
 			want: []notion.Block{
-				notion.NewBulletedItem(strings.Repeat("라", 2000)),
-				notion.NewBulletedItem("라"),
+				notion.NewBulletedItemRich(plainSpans(strings.Repeat("라", 2000), "라")),
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ToBlocks(tt.body); !reflect.DeepEqual(got, tt.want) {
+			if got := ToBlocks(tt.body, "TestVault"); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("블록 수 %d, want %d (본문 길이 %d rune)",
 					len(got), len(tt.want), len([]rune(tt.body)))
 			}

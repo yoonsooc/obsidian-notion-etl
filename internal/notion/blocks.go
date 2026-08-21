@@ -23,30 +23,57 @@ type ToDoBlock struct {
 	Checked  bool       `json:"checked"`
 }
 
-// RichText는 rich text 배열의 원소다. v1은 스타일 없는 text 타입만 쓴다.
+// RichText는 rich text 배열의 원소다. Annotations와 Link는 인라인 서식이
+// 있을 때만 채워진다 (task-012).
 type RichText struct {
-	Type string `json:"type"`
-	Text Text   `json:"text"`
+	Type        string       `json:"type"`
+	Text        Text         `json:"text"`
+	Annotations *Annotations `json:"annotations,omitempty"`
 }
 
-// Text는 rich text의 실제 내용이다.
+// Annotations는 rich text 원소의 인라인 서식이다.
+type Annotations struct {
+	Bold          bool `json:"bold,omitempty"`
+	Italic        bool `json:"italic,omitempty"`
+	Strikethrough bool `json:"strikethrough,omitempty"`
+	Underline     bool `json:"underline,omitempty"`
+	Code          bool `json:"code,omitempty"`
+}
+
+// Text는 rich text의 실제 내용이다. Link가 있으면 인라인 링크가 된다.
 type Text struct {
 	Content string `json:"content"`
+	Link    *Link  `json:"link,omitempty"`
 }
 
-// newRichText는 텍스트 하나로 rich_text 1원소 배열을 만든다.
-func newRichText(text string) []RichText {
+// Link는 인라인 링크의 대상 URL이다.
+type Link struct {
+	URL string `json:"url"`
+}
+
+// PlainText는 서식 없는 텍스트 하나로 rich_text 1원소 배열을 만든다.
+func PlainText(text string) []RichText {
 	return []RichText{{Type: "text", Text: Text{Content: text}}}
 }
 
-// NewParagraph는 paragraph 블록을 만든다.
+// NewParagraph는 서식 없는 paragraph 블록을 만든다.
 func NewParagraph(text string) Block {
-	return Block{Object: "block", Type: "paragraph", Paragraph: &RichTextBlock{RichText: newRichText(text)}}
+	return NewParagraphRich(PlainText(text))
 }
 
-// NewHeading은 heading_1/2/3 블록을 만든다. level이 1~3 밖이면 3으로 클램프한다.
+// NewParagraphRich는 rich text 배열로 paragraph 블록을 만든다.
+func NewParagraphRich(richText []RichText) Block {
+	return Block{Object: "block", Type: "paragraph", Paragraph: &RichTextBlock{RichText: richText}}
+}
+
+// NewHeading은 서식 없는 heading_1/2/3 블록을 만든다. level이 1~3 밖이면 3으로 클램프한다.
 func NewHeading(level int, text string) Block {
-	body := &RichTextBlock{RichText: newRichText(text)}
+	return NewHeadingRich(level, PlainText(text))
+}
+
+// NewHeadingRich는 rich text 배열로 heading_1/2/3 블록을 만든다.
+func NewHeadingRich(level int, richText []RichText) Block {
+	body := &RichTextBlock{RichText: richText}
 	switch level {
 	case 1:
 		return Block{Object: "block", Type: "heading_1", Heading1: body}
@@ -57,14 +84,24 @@ func NewHeading(level int, text string) Block {
 	}
 }
 
-// NewBulletedItem은 bulleted_list_item 블록을 만든다.
+// NewBulletedItem은 서식 없는 bulleted_list_item 블록을 만든다.
 func NewBulletedItem(text string) Block {
-	return Block{Object: "block", Type: "bulleted_list_item", BulletedListItem: &RichTextBlock{RichText: newRichText(text)}}
+	return NewBulletedItemRich(PlainText(text))
 }
 
-// NewToDo는 to_do 블록을 만든다.
+// NewBulletedItemRich는 rich text 배열로 bulleted_list_item 블록을 만든다.
+func NewBulletedItemRich(richText []RichText) Block {
+	return Block{Object: "block", Type: "bulleted_list_item", BulletedListItem: &RichTextBlock{RichText: richText}}
+}
+
+// NewToDo는 서식 없는 to_do 블록을 만든다.
 func NewToDo(text string, checked bool) Block {
-	return Block{Object: "block", Type: "to_do", ToDo: &ToDoBlock{RichText: newRichText(text), Checked: checked}}
+	return NewToDoRich(PlainText(text), checked)
+}
+
+// NewToDoRich는 rich text 배열로 to_do 블록을 만든다.
+func NewToDoRich(richText []RichText, checked bool) Block {
+	return Block{Object: "block", Type: "to_do", ToDo: &ToDoBlock{RichText: richText, Checked: checked}}
 }
 
 // ChunkText는 텍스트를 limit자(rune 기준) 단위로 나눈다.
