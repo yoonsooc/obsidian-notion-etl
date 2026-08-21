@@ -4,4 +4,5 @@ PRD.md
 base.config.yaml
 /configs/*
 /logs/*
+/docs/*
 etl-worker
