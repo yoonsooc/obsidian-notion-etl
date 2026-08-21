@@ -6,37 +6,36 @@ import (
 	"time"
 )
 
-// DateRule은 dateFrom 체인의 한 단계다. 노트의 날짜를 얻는 방법 하나를
-// 기술하며, 두 필드 중 정확히 하나만 설정되어야 한다.
+// DateRule is one step in a dateFrom chain: a single way to derive a note's
+// date. Exactly one field must be set.
 type DateRule struct {
-	// FileLayout은 파일명(확장자 제외)에 적용할 Go 시간 레이아웃이다 (예: 'DN_060102').
+	// FileLayout is a Go time layout applied to the file name without
+	// extension (e.g. "DN_060102").
 	FileLayout string `yaml:"fileLayout,omitempty"`
-	// FrontmatterKey는 날짜를 읽을 frontmatter 키다. 값은 2006-01-02 형식을
-	// 우선 시도하고, 실패하면 RFC3339 형식으로 해석한다.
+	// FrontmatterKey names the frontmatter key to read the date from; the
+	// value is parsed as 2006-01-02 first, then RFC3339.
 	FrontmatterKey string `yaml:"frontmatterKey,omitempty"`
 }
 
-// MappingEntry는 옵시디언 프론트매터 키와 노션 속성의 대응 관계 하나를 나타낸다.
-// Frontmatter와 Value 중 정확히 하나만 설정되어야 한다.
+// MappingEntry maps one Obsidian frontmatter key to a Notion property.
+// Exactly one of Frontmatter and Value must be set.
 type MappingEntry struct {
 	Frontmatter    string `yaml:"frontmatter,omitempty"`
 	NotionProperty string `yaml:"notionProperty"`
-	// Value는 고정값이다. 설정 시 Frontmatter/Values/Default는 비어야 한다.
+	// Value is a fixed value; when set, Frontmatter/Values/Default must be empty.
 	Value string `yaml:"value,omitempty"`
-	// Values는 frontmatter 값 -> 노션 값 변환 테이블이다.
+	// Values translates frontmatter values to Notion values.
 	Values map[string]string `yaml:"values,omitempty"`
-	// Default는 Values에 없거나 frontmatter 값이 빈 경우의 폴백이다.
+	// Default is the fallback for missing or unmapped frontmatter values.
 	Default string `yaml:"default,omitempty"`
 }
 
-// ValidateMapping은 매핑 규칙을 실제 노션 스키마와 대조한다 (init은 검증자).
-// 반환된 warnings는 실행을 막지 않는 경고이며, 호출자가 warn 로그로 안내한다.
-// err가 nil이 아니면 실행 중단 사유다.
-// 검증 내용:
-//   - notionProperty가 properties에 존재 (대소문자 정확 일치 우선, 무시 일치는 경고 후 수용)
-//   - Value와 Frontmatter가 동시에 설정되면 에러, 둘 다 없어도 에러
-//   - 같은 notionProperty를 가리키는 엔트리가 2개 이상이면 경고 후 뒤 엔트리 무시
-//   - title/date/url 타입 속성을 가리키면 에러 (파이프라인이 파일명에서 파생)
+// ValidateMapping checks mapping rules against the actual Notion schema.
+// warnings are non-fatal (caller logs them); a non-nil err aborts the run.
+// Rules: notionProperty must exist (case-insensitive match is accepted with a
+// warning), exactly one of Value/Frontmatter must be set, duplicate targets
+// warn and ignore later entries, and title/date/url properties are rejected
+// because the pipeline derives them from the file name.
 func ValidateMapping(mapping []MappingEntry, properties []Property) (warnings []string, err error) {
 	byName := make(map[string]Property, len(properties))
 	byFold := make(map[string]Property, len(properties))
@@ -45,7 +44,7 @@ func ValidateMapping(mapping []MappingEntry, properties []Property) (warnings []
 		byFold[strings.ToLower(p.Name)] = p
 	}
 
-	// 확정된 속성 이름 -> 그 속성을 처음 가리킨 엔트리 인덱스
+	// resolved property name -> index of the first entry targeting it
 	seen := make(map[string]int, len(mapping))
 	for i, m := range mapping {
 		if strings.TrimSpace(m.NotionProperty) == "" {
@@ -76,7 +75,7 @@ func ValidateMapping(mapping []MappingEntry, properties []Property) (warnings []
 		case "title", "date", "url":
 			return warnings, fmt.Errorf("mapping[%d]: %s 타입 속성 %q은 매핑할 수 없음(파이프라인이 파일명에서 파생)", i, prop.Type, prop.Name)
 		case "select", "status", "rich_text":
-			// v1이 페이로드를 만들 수 있는 타입 (PRD FR-2). 통과.
+			// The only property types v1 can build payloads for.
 		default:
 			return warnings, fmt.Errorf("mapping[%d]: %s 타입 속성 %q은 v1이 지원하지 않음(지원: select, status, rich_text)", i, prop.Type, prop.Name)
 		}
@@ -90,10 +89,10 @@ func ValidateMapping(mapping []MappingEntry, properties []Property) (warnings []
 	return warnings, nil
 }
 
-// ValidateDateRules는 dateFrom 규칙 목록을 검증한다. field는 에러 메시지에
-// 표기할 설정 경로다. 각 단계는 fileLayout과 frontmatterKey 중 정확히 하나만
-// 설정해야 하며, fileLayout은 그 레이아웃으로 포맷한 기준 시각을 같은
-// 레이아웃으로 되읽는 왕복 검사로 유효성을 확인한다.
+// ValidateDateRules validates a dateFrom rule list; field is the config path
+// used in error messages. Each step must set exactly one of fileLayout and
+// frontmatterKey, and each fileLayout must survive a format/parse round trip
+// of the reference time.
 func ValidateDateRules(field string, rules []DateRule) error {
 	for i, r := range rules {
 		hasLayout := strings.TrimSpace(r.FileLayout) != ""
@@ -105,8 +104,8 @@ func ValidateDateRules(field string, rules []DateRule) error {
 			continue
 		}
 
-		// 예: "12"처럼 월과 일이 붙어 자릿수를 구분할 수 없는 레이아웃은
-		// 포맷은 되지만 되읽기가 실패하므로 여기서 걸러진다.
+		// Catches layouts like "12" that format fine but cannot be parsed
+		// back (month and day digits are ambiguous).
 		ref := time.Date(2006, time.January, 2, 15, 4, 5, 0, time.UTC)
 		if _, err := time.Parse(r.FileLayout, ref.Format(r.FileLayout)); err != nil {
 			return fmt.Errorf("%s.dateFrom[%d].fileLayout %q이 유효한 시간 레이아웃이 아님: %w", field, i, r.FileLayout, err)

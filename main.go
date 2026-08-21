@@ -1,3 +1,5 @@
+// Command etl-worker runs one-way data transfers between a local
+// Obsidian vault and a Notion database.
 package main
 
 import (
@@ -7,14 +9,13 @@ import (
 )
 
 func main() {
-	// 종료 지점을 한 곳으로 모은다 (docs/review-checklist.md 3번).
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-// run은 서브커맨드를 해석해 실행하고 에러를 반환한다.
+// run dispatches the subcommand and returns its error.
 func run(args []string) error {
 	if len(args) < 1 {
 		printUsage()

@@ -11,20 +11,20 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Property는 노션 데이터베이스 컬럼(속성) 하나를 나타낸다.
+// Property is one Notion database property (column).
 type Property struct {
 	Name string `yaml:"name"`
 	Type string `yaml:"type"`
 }
 
-// State는 파이프라인 실행 이력을 나타낸다.
+// State records pipeline run history.
 type State struct {
 	FirstRunAt       string `yaml:"firstRunAt"`
 	LastMigrateRunAt string `yaml:"lastMigrateRunAt"`
 	LastBackupRunAt  string `yaml:"lastBackupRunAt"`
 }
 
-// LatestConfig는 latest.config.yaml의 구조를 나타낸다.
+// LatestConfig models latest.config.yaml.
 type LatestConfig struct {
 	GeneratedAt string `yaml:"generatedAt"`
 	Obsidian    struct {
@@ -40,7 +40,7 @@ type LatestConfig struct {
 	State    State          `yaml:"state"`
 }
 
-// LoadLatest는 latest.config.yaml을 읽는다. 파일이 없으면 (nil, nil)을 반환한다.
+// LoadLatest reads latest.config.yaml; a missing file returns (nil, nil).
 func LoadLatest(path string) (*LatestConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -57,12 +57,11 @@ func LoadLatest(path string) (*LatestConfig, error) {
 	return &cfg, nil
 }
 
-// SaveLatest는 cfg를 path에 저장하고, 아카이빙이 일어났는지를 돌려준다.
-// 기존 파일이 있고 State를 제외한 부분이 다르면, 저장 전에 기존 파일을
-// backupDir/"2006-01-02-150405.config.yaml"로 복사한다(이름이 겹치면 접미사를
-// 붙여 기존 아카이브를 보존한다). now는 아카이브 파일명과 GeneratedAt에
-// 사용한다. 저장 시 cfg.GeneratedAt이 now 기준으로 갱신되며, 쓰기는 임시 파일
-// 후 rename으로 수행되어 중간 실패에도 기존 파일이 손상되지 않는다.
+// SaveLatest writes cfg to path and reports whether the previous file was
+// archived. If an existing file differs outside State, it is first copied to
+// backupDir as "2006-01-02-150405.config.yaml" (suffixing on name collision).
+// now feeds both the archive name and cfg.GeneratedAt. The write is atomic
+// (temp file + rename), so a mid-write failure leaves the old file intact.
 func SaveLatest(path, backupDir string, cfg *LatestConfig, now time.Time) (archived bool, err error) {
 	if cfg == nil {
 		return false, errors.New("저장할 latest 설정이 nil")
@@ -96,8 +95,8 @@ func SaveLatest(path, backupDir string, cfg *LatestConfig, now time.Time) (archi
 	return archived, nil
 }
 
-// writeFileAtomic은 같은 디렉토리의 임시 파일에 쓴 뒤 rename으로 path를
-// 교체한다. 쓰기 도중 실패해도 기존 파일은 온전히 남는다.
+// writeFileAtomic writes to a temp file in the same directory and renames it
+// over path, so a failed write never corrupts the existing file.
 func writeFileAtomic(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
@@ -116,7 +115,7 @@ func writeFileAtomic(path string, data []byte) error {
 		return fmt.Errorf("임시 파일 닫기 실패: %w", closeErr)
 	}
 
-	// CreateTemp는 0600으로 만들므로 기존 관례(0644)에 맞춘다.
+	// CreateTemp uses 0600; match the usual 0644.
 	if err := os.Chmod(tmpPath, 0o644); err != nil {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("임시 파일 권한 설정 실패: %w", err)
@@ -128,10 +127,9 @@ func writeFileAtomic(path string, data []byte) error {
 	return nil
 }
 
-// differsExceptState는 두 설정이 State(실행 이력)를 제외하고 다른지 판정한다.
-// GeneratedAt은 저장 시각의 기록일 뿐이므로 함께 비교에서 제외한다.
-// 비교는 State와 GeneratedAt을 제로값으로 바꾼 복사본을 yaml로 마샬링해
-// 바이트 단위로 수행한다.
+// differsExceptState reports whether a and b differ outside State and
+// GeneratedAt (run history and save timestamp should not trigger archiving);
+// it compares YAML marshalings of copies with those fields zeroed.
 func differsExceptState(a, b *LatestConfig) (bool, error) {
 	ca, cb := *a, *b
 	ca.State, cb.State = State{}, State{}
@@ -148,9 +146,9 @@ func differsExceptState(a, b *LatestConfig) (bool, error) {
 	return !bytes.Equal(da, db), nil
 }
 
-// archiveFile은 path의 기존 파일을 backupDir 아래에
-// "2006-01-02-150405.config.yaml" 이름으로 복사한다. 같은 초에 이미 아카이브가
-// 있으면 "-2", "-3" 접미사를 붙여 기존 이력을 덮어쓰지 않는다.
+// archiveFile copies path into backupDir as "2006-01-02-150405.config.yaml",
+// appending "-2", "-3", ... when the same second already has an archive so
+// prior history is never overwritten.
 func archiveFile(path, backupDir string, now time.Time) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -160,7 +158,7 @@ func archiveFile(path, backupDir string, now time.Time) error {
 		return fmt.Errorf("아카이브 디렉토리 생성 실패: %w", err)
 	}
 
-	// 같은 초 안의 재시도가 이 한도를 넘는 것은 비정상 상황이므로 에러로 끊는다.
+	// More collisions than this within one second is abnormal; bail out.
 	const maxSuffix = 1000
 	base := now.Format("2006-01-02-150405")
 	for i := 1; i <= maxSuffix; i++ {
@@ -170,7 +168,7 @@ func archiveFile(path, backupDir string, now time.Time) error {
 		}
 		dst := filepath.Join(backupDir, name+".config.yaml")
 
-		// O_EXCL로 기존 파일 존재 시 실패시켜 덮어쓰기를 원천 차단한다.
+		// O_EXCL fails if the file exists, preventing overwrites.
 		f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if err != nil {
 			if os.IsExist(err) {

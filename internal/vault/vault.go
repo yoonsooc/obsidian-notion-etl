@@ -1,5 +1,5 @@
-// Package vault는 옵시디언 볼트의 마크다운 노트 스캔과
-// YAML Frontmatter 파싱을 담당한다. 정규식 없이 strings 표준 함수만 사용한다.
+// Package vault scans an Obsidian vault for markdown notes and parses
+// their YAML frontmatter using plain string functions (no regex).
 package vault
 
 import (
@@ -15,20 +15,19 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// Note는 파싱된 마크다운 노트 한 건이다.
+// Note is a single parsed markdown note.
 type Note struct {
-	Filename    string            // 예: "2025-11-05.md"
-	RelPath     string            // 스캔 루트 기준 상대경로 (슬래시 구분). CollectNotes가 채운다
-	Frontmatter map[string]string // 키 -> 값 (값의 양끝 따옴표 제거됨)
-	Body        string            // frontmatter를 제외한 본문 (TrimSpace 적용)
+	Filename    string            // e.g. "2025-11-05.md"
+	RelPath     string            // slash-separated path relative to the scan root, set by CollectNotes
+	Frontmatter map[string]string // key -> value (surrounding quotes stripped)
+	Body        string            // content after the frontmatter, trimmed
 }
 
-// ParseNote는 노트 내용에서 frontmatter와 본문을 분리한다.
-// frontmatter가 없으면 Frontmatter는 빈 맵, Body는 전체 내용이다.
-// 파싱 규칙: 첫 줄이 정확히 "---"이고 닫는 "---" 줄이 있을 때만 frontmatter로
-// 취급하며(줄 단위 판정이라 값 안의 "---"나 수평선 "----"에 오동작하지 않는다),
-// 그 사이 줄들에서 "key: value" 형태만 수집한다.
-// 중첩 YAML과 리스트 값은 M1 범위 밖이므로 무시하되 키는 수집한다.
+// ParseNote splits note content into frontmatter and body.
+// Frontmatter is recognized only when the first line is exactly "---" and a
+// closing "---" line exists; line-level matching keeps "---" inside values or
+// horizontal rules ("----") from being misread. Only "key: value" lines are
+// collected; nested YAML and list values are ignored (the key is still kept).
 func ParseNote(filename, content string) Note {
 	note := Note{
 		Filename:    filename,
@@ -37,12 +36,10 @@ func ParseNote(filename, content string) Note {
 	}
 
 	lines := strings.Split(content, "\n")
-	// 첫 줄이 정확히 "---"일 때만 frontmatter가 있는 문서다.
 	if trimLineEnd(lines[0]) != "---" {
 		return note
 	}
 
-	// 정확히 "---"인 닫는 줄을 찾는다. 없으면 frontmatter 없음으로 취급한다.
 	closing := -1
 	for i := 1; i < len(lines); i++ {
 		if trimLineEnd(lines[i]) == "---" {
@@ -59,17 +56,17 @@ func ParseNote(filename, content string) Note {
 	return note
 }
 
-// trimLineEnd는 줄 끝의 캐리지 리턴(CRLF 문서 대응)과 공백을 제거한다.
+// trimLineEnd strips trailing whitespace and carriage returns (CRLF files).
 func trimLineEnd(line string) string {
 	return strings.TrimRight(line, "\r \t")
 }
 
-// parseFrontmatter는 frontmatter 블록에서 "key: value" 줄들을 맵으로 수집한다.
+// parseFrontmatter collects "key: value" lines from a frontmatter block.
 func parseFrontmatter(block string) map[string]string {
 	fm := make(map[string]string)
 	for line := range strings.SplitSeq(block, "\n") {
 		line = strings.TrimSpace(line)
-		// 빈 줄, 리스트 항목("- a"), YAML 주석("# ...")은 키가 아니므로 건너뛴다.
+		// Skip blank lines, list items ("- a"), and YAML comments ("# ...").
 		if line == "" || strings.HasPrefix(line, "-") || strings.HasPrefix(line, "#") {
 			continue
 		}
@@ -82,11 +79,11 @@ func parseFrontmatter(block string) map[string]string {
 	return fm
 }
 
-// splitKeyValue는 frontmatter 줄에서 키와 값을 분리한다.
-// 키가 따옴표로 감싸인 경우(`"docu_type:": Plan`처럼 따옴표 안에 콜론이
-// 있을 수 있다) 따옴표 안 전체를 키로 취급하고, 그 외에는 값의 콜론을
-// 보존하기 위해("time: 10:30") 첫 콜론만 구분자로 쓴다.
-// 실무 데이터에서 키 끝에 붙은 콜론은 작성 도구의 오타이므로 제거한다.
+// splitKeyValue splits a frontmatter line into key and value.
+// A quoted key may contain a colon (e.g. `"docu_type:": Plan`, a typo seen in
+// real vaults), so the quoted span is taken as the key; otherwise only the
+// first colon splits, preserving colons in values ("time: 10:30").
+// A trailing colon inside the key is treated as a typo and removed.
 func splitKeyValue(line string) (key, value string, ok bool) {
 	if quote := line[0]; quote == '"' || quote == '\'' {
 		if end := strings.IndexByte(line[1:], quote); end >= 0 {
@@ -96,19 +93,19 @@ func splitKeyValue(line string) (key, value string, ok bool) {
 				return key, strings.TrimSpace(after), true
 			}
 		}
-		// 짝이 맞지 않거나 뒤에 콜론이 없으면 일반 규칙으로 폴백한다.
+		// Unbalanced quote or no colon after it: fall back to the plain rule.
 	}
 	k, v, found := strings.Cut(line, ":")
 	if !found {
 		return "", "", false
 	}
-	// 짝이 맞지 않는 따옴표 오타(`"created: ...`)도 키를 오염시키지 않도록
-	// 키 양끝의 따옴표 문자를 전부 벗긴다.
+	// Strip stray quote characters so an unbalanced quote typo
+	// (`"created: ...`) does not pollute the key.
 	key = strings.TrimSuffix(strings.Trim(strings.TrimSpace(k), `"'`), ":")
 	return key, strings.TrimSpace(v), true
 }
 
-// trimQuotes는 값 양끝의 짝이 맞는 작은/큰따옴표를 한 겹 제거한다.
+// trimQuotes removes one layer of matching single or double quotes.
 func trimQuotes(s string) string {
 	if len(s) < 2 {
 		return s
@@ -120,16 +117,15 @@ func trimQuotes(s string) string {
 	return s
 }
 
-// CollectNotes는 dir 하위의 *.md 파일들을 재귀적으로 읽어 파싱된 노트
-// 목록을 돌려준다. exclude의 glob 패턴에 걸리는 파일은 gitignore처럼
-// 대상에서 제외한다 (Excluded 참조). 개별 파일 읽기 실패는 warn에 경고를
-// 남기고 건너뛴다 (PRD 6.2 Continue 정책). 결과는 상대경로 오름차순이다.
+// CollectNotes recursively reads *.md files under dir and returns parsed
+// notes sorted by relative path. Files matching an exclude glob are skipped
+// (see Excluded). Individual read failures are logged to warn and skipped.
 func CollectNotes(dir string, exclude []string, warn io.Writer) ([]Note, error) {
 	var notes []Note
 
 	walkErr := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
-			// 루트 자체를 읽지 못하면 스캔이 무의미하므로 에러로 중단한다.
+			// An unreadable root makes the whole scan pointless; abort.
 			if p == dir {
 				return err
 			}
@@ -144,7 +140,7 @@ func CollectNotes(dir string, exclude []string, warn io.Writer) ([]Note, error) 
 			rel = d.Name()
 		}
 
-		// 제외 대상 디렉토리는 하위 전체를 가지치기해 탐색 비용을 줄인다.
+		// Prune excluded directories to avoid walking their subtrees.
 		if d.IsDir() {
 			if p != dir && Excluded(rel, exclude) {
 				return filepath.SkipDir
@@ -171,14 +167,13 @@ func CollectNotes(dir string, exclude []string, warn io.Writer) ([]Note, error) 
 	if walkErr != nil {
 		return nil, fmt.Errorf("scan dir %s: %w", dir, walkErr)
 	}
-	// WalkDir는 사전식 순회지만 명시적으로 정렬해 결정적 순서를 보장한다.
+	// WalkDir already walks lexically; sort anyway for a deterministic order.
 	sort.Slice(notes, func(i, j int) bool { return notes[i].RelPath < notes[j].RelPath })
 	return notes, nil
 }
 
-// ScanFrontmatterKeys는 dir 하위의 *.md 파일들을 재귀적으로 읽어
-// 등장하는 frontmatter 키의 중복 제거·정렬된 목록을 돌려준다.
-// 대상 선정 규칙은 CollectNotes와 같다.
+// ScanFrontmatterKeys recursively reads *.md files under dir and returns the
+// deduplicated, sorted list of frontmatter keys. File selection matches CollectNotes.
 func ScanFrontmatterKeys(dir string, exclude []string, warn io.Writer) ([]string, error) {
 	notes, err := CollectNotes(dir, exclude, warn)
 	if err != nil {
@@ -200,20 +195,18 @@ func ScanFrontmatterKeys(dir string, exclude []string, warn io.Writer) ([]string
 	return keys, nil
 }
 
-// Excluded는 대상 디렉토리 기준 상대경로가 exclude glob 패턴 중 하나에
-// 걸리는지 판정한다. gitignore처럼 동작하도록 패턴을 세 종류의 후보에
-// 적용한다: 상대경로 전체, 파일명(basename), 그리고 모든 조상 디렉토리 경로.
-// 조상 매칭 덕분에 "templates"나 "templates/*" 패턴이 templates/2025/note.md
-// 같은 깊은 하위 파일도 제외한다 (path.Match의 *는 /를 넘지 못하기 때문에
-// 경로 전체 매칭만으로는 1단계밖에 걸리지 않는다).
-// macOS 디스크의 한글 파일명은 NFD로 저장되므로, 설정 파일의 NFC 패턴과
-// 맞도록 양쪽을 NFC로 정규화한 뒤 비교한다.
-// 패턴 문법 오류는 설정 로드 단계에서 검증되므로 여기서는 무시한다.
+// Excluded reports whether relPath matches any exclude glob, gitignore-style.
+// Each pattern is tried against the full relative path, the basename, and
+// every ancestor directory path; ancestor matching lets "templates" or
+// "templates/*" exclude deeply nested files, since path.Match's '*' does not
+// cross '/'. Both sides are NFC-normalized before comparing because macOS
+// stores Korean filenames in NFD while config patterns are typically NFC.
+// Pattern syntax errors are validated at config load time and ignored here.
 func Excluded(relPath string, exclude []string) bool {
 	rel := norm.NFC.String(filepath.ToSlash(relPath))
 
-	// 후보: 상대경로 전체, 파일명, 조상 디렉토리 경로들
-	// (예: templates/2025/note.md -> [전체, note.md, templates, templates/2025]).
+	// Candidates: full path, basename, and ancestor directory paths
+	// (e.g. templates/2025/note.md -> [full, note.md, templates, templates/2025]).
 	segments := strings.Split(rel, "/")
 	candidates := make([]string, 0, len(segments)+1)
 	candidates = append(candidates, rel, path.Base(rel))

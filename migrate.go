@@ -16,33 +16,34 @@ import (
 	"github.com/yoonsooc/obsidian-notion-etl/internal/vault"
 )
 
-// migrateWorkers는 마이그레이션 워커 풀 크기다 (PRD FR-2 7항).
-// API 처리량은 워커 수가 아니라 클라이언트에 내장된 Limiter(2.5 TPS)가 결정한다.
+// migrateWorkers is the worker pool size. API throughput is governed by the
+// client's built-in rate limiter (2.5 TPS), not the worker count.
 const migrateWorkers = 5
 
-// migrateEnv는 워커들이 공유하는 실행 환경이다.
-// claimed를 제외한 모든 필드는 실행 중 읽기 전용이다.
+// migrateEnv is the execution environment shared by workers.
+// Every field except claimed is read-only during a run.
 type migrateEnv struct {
 	client        *notion.Client
 	logger        *logging.Logger
 	chain         []transform.Transformer
 	dataSourceID  string
-	titleProp     string            // title 타입 속성 이름
-	dateProp      string            // date 타입 속성 이름 (없으면 빈 문자열)
-	urlProp       string            // url 타입 속성 이름 (없으면 빈 문자열)
-	typeByName    map[string]string // 노션 속성 이름 -> 타입
-	vaultName     string            // 옵시디언 볼트 이름 (본문 위키링크 URI 생성용)
-	effectiveDate time.Time         // 제로값이면 게이트 없음
+	titleProp     string            // name of the title property
+	dateProp      string            // name of the date property, empty if none
+	urlProp       string            // name of the url property, empty if none
+	typeByName    map[string]string // Notion property name -> type
+	vaultName     string            // Obsidian vault name, used for wiki-link URIs
+	effectiveDate time.Time         // zero value disables the gate
 	dryRun        bool
 
-	// claimed는 이번 실행에서 이미 처리(생성 예약)된 중복 검사 키의 집합이다.
-	// 같은 날짜/제목으로 파생되는 두 노트를 서로 다른 워커가 동시에 처리할 때,
-	// 노션 조회만으로는 못 잡는 검사-생성 사이의 경합을 로컬에서 차단한다.
+	// claimed is the set of duplicate-check keys already taken in this run.
+	// When two notes deriving the same date/title land on different workers,
+	// it locally blocks the check-then-create race that a Notion query alone
+	// cannot catch.
 	claimedMu sync.Mutex
 	claimed   map[string]struct{}
 }
 
-// claim은 중복 검사 키를 선점한다. 이미 선점된 키면 거짓을 돌려준다.
+// claim reserves a duplicate-check key, returning false if already taken.
 func (env *migrateEnv) claim(key string) bool {
 	env.claimedMu.Lock()
 	defer env.claimedMu.Unlock()
@@ -53,7 +54,7 @@ func (env *migrateEnv) claim(key string) bool {
 	return true
 }
 
-// migrateStats는 실행 결과 집계다.
+// migrateStats aggregates per-note outcomes across workers.
 type migrateStats struct {
 	mu          sync.Mutex
 	migrated    int
@@ -77,8 +78,8 @@ func (s *migrateStats) add(outcome string) {
 	}
 }
 
-// runMigrate는 PRD FR-2의 마이그레이션을 수행한다.
-// --dry-run이면 페이지 생성과 state 갱신 없이 무엇이 이관될지 로그로만 보여준다.
+// runMigrate migrates Obsidian notes to Notion. With --dry-run it only logs
+// what would be migrated, without creating pages or updating state.
 func runMigrate(args []string) (err error) {
 	dryRun := false
 	for _, a := range args {
@@ -94,7 +95,7 @@ func runMigrate(args []string) (err error) {
 	}
 	summaryPrinted := false
 	defer func() {
-		// 요약이 이미 로그 경로를 안내했다면 중복 출력하지 않는다.
+		// Skip the log path hint if the summary already printed it.
 		if err != nil && logger.Wrote() && !summaryPrinted {
 			fmt.Fprintf(os.Stderr, "상세 로그: %s\n", logger.Path())
 		}
@@ -171,7 +172,7 @@ func runMigrate(args []string) (err error) {
 	return nil
 }
 
-// newMigrateEnv는 검증된 설정에서 워커 실행 환경을 조립한다.
+// newMigrateEnv assembles the worker environment from the validated config.
 func newMigrateEnv(token string, base *config.BaseConfig, latest *config.LatestConfig, logger *logging.Logger, dryRun bool) (*migrateEnv, error) {
 	env := &migrateEnv{
 		client:       notion.NewClient(token),
@@ -210,15 +211,15 @@ func newMigrateEnv(token string, base *config.BaseConfig, latest *config.LatestC
 		env.effectiveDate = effective
 	}
 
-	// 변환 규칙은 코드에 있다 (D10-변환 규칙의 위치). latest 스냅샷은 기록용이다.
+	// Transform rules live in code (pipeline.go); the latest snapshot is for record only.
 	env.vaultName = toNotion.Name
 	env.chain = buildPipeline(toNotion.Name, toNotion.Target, latest.Notion.Properties)
 	return env, nil
 }
 
-// processNote는 노트 하나를 파이프라인 -> 게이트 -> 중복 검사 -> 생성 순서로
-// 처리하고 결과("migrated"/"skippedDup"/"skippedGate"/"failed")를 돌려준다.
-// 실패는 로그에 남기고 다음 노트로 계속한다 (PRD 6.2 Continue 정책).
+// processNote runs one note through pipeline -> gate -> duplicate check ->
+// create, returning "migrated", "skippedDup", "skippedGate", or "failed".
+// Failures are logged and processing continues with the next note.
 func (env *migrateEnv) processNote(ctx context.Context, note vault.Note) string {
 	draft, err := transform.Run(transform.Note{
 		Filename:    note.Filename,
@@ -234,7 +235,8 @@ func (env *migrateEnv) processNote(ctx context.Context, note vault.Note) string 
 		env.logger.Warnf("%s: %s", note.RelPath, w)
 	}
 
-	// effectiveDate 게이트: 날짜가 파생된 노트만 필터하고, 미상은 통과 (D6).
+	// effectiveDate gate: filters only notes with a derived date; notes
+	// without one pass through.
 	if draft.Date != "" && !env.effectiveDate.IsZero() {
 		d, err := time.Parse("2006-01-02", draft.Date)
 		if err != nil {
@@ -247,8 +249,9 @@ func (env *migrateEnv) processNote(ctx context.Context, note vault.Note) string 
 		}
 	}
 
-	// 중복 검사 (D2-멱등성): 날짜가 있으면 Date, 없으면 제목 기준.
-	// 먼저 실행 내 키 선점으로 워커 간 검사-생성 경합을 막고, 그다음 노션을 조회한다.
+	// Duplicate check: by date when available, otherwise by title. Claim the
+	// key within this run first to block the check-then-create race between
+	// workers, then query Notion.
 	dupKey := "title:" + draft.Title
 	if draft.Date != "" && env.dateProp != "" {
 		dupKey = "date:" + draft.Date
@@ -278,8 +281,8 @@ func (env *migrateEnv) processNote(ctx context.Context, note vault.Note) string 
 
 	pageID, err := env.client.CreatePage(ctx, env.dataSourceID, properties, blocks)
 	if err != nil {
-		// 부분 생성(페이지 생성 후 append 실패)의 페이지 ID와 정리 안내는
-		// CreatePage의 에러 메시지에 이미 포함되어 있다.
+		// On partial creation (page created, block append failed) the page ID
+		// and cleanup hint are already part of CreatePage's error message.
 		env.logger.Warnf("생성 실패 %s: %v", note.RelPath, err)
 		return "failed"
 	}
@@ -287,7 +290,7 @@ func (env *migrateEnv) processNote(ctx context.Context, note vault.Note) string 
 	return "migrated"
 }
 
-// checkDuplicate는 초안과 같은 페이지가 이미 존재하는지 조회한다.
+// checkDuplicate queries Notion for an existing page matching the draft.
 func (env *migrateEnv) checkDuplicate(ctx context.Context, draft *transform.PageDraft) (bool, error) {
 	if draft.Date != "" && env.dateProp != "" {
 		return env.client.ExistsByDate(ctx, env.dataSourceID, env.dateProp, draft.Date)
@@ -295,8 +298,9 @@ func (env *migrateEnv) checkDuplicate(ctx context.Context, draft *transform.Page
 	return env.client.ExistsByTitle(ctx, env.dataSourceID, env.titleProp, draft.Title)
 }
 
-// buildProperties는 초안을 노션 속성 페이로드로 변환한다.
-// 전용 속성(title/date/url)은 초안의 전용 필드에서, 나머지는 매핑 결과에서 채운다.
+// buildProperties converts a draft into the Notion property payload.
+// Dedicated properties (title/date/url) come from the draft's dedicated
+// fields; the rest come from the mapping results.
 func (env *migrateEnv) buildProperties(draft *transform.PageDraft, relPath string) map[string]notion.PropertyValue {
 	properties := make(map[string]notion.PropertyValue, len(draft.Properties)+3)
 	properties[env.titleProp] = notion.PropertyValue{Type: "title", Value: draft.Title}
@@ -309,7 +313,7 @@ func (env *migrateEnv) buildProperties(draft *transform.PageDraft, relPath strin
 	for name, value := range draft.Properties {
 		propType, ok := env.typeByName[name]
 		if !ok {
-			// init 검증을 통과했다면 없어야 하는 경우의 방어.
+			// Defensive: should not happen once init validation passed.
 			env.logger.Warnf("%s: 노션 속성 %q의 타입을 알 수 없어 속성을 건너뜀", relPath, name)
 			continue
 		}

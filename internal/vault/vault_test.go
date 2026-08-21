@@ -100,7 +100,7 @@ func TestParseNote(t *testing.T) {
 			wantBody: "본문",
 		},
 		{
-			// 실제 볼트에서 관측된 형태: 따옴표 안에 콜론이 포함된 키.
+			// Observed in real vault data: quoted key containing a colon.
 			name:     "따옴표 안에 콜론이 포함된 키(실데이터 오타 형태)",
 			content:  "---\n\"docu_type:\": Plan\ncategory:\n  - daily-note\n---\n본문",
 			wantFM:   map[string]string{"docu_type": "Plan", "category": ""},
@@ -145,7 +145,7 @@ func TestScanFrontmatterKeys(t *testing.T) {
 		}
 	}
 
-	// 하위 디렉토리의 md 파일도 재귀적으로 스캔 대상에 포함되어야 한다.
+	// Markdown files in subdirectories must be scanned recursively.
 	subdir := filepath.Join(dir, "2026-08")
 	if err := os.Mkdir(subdir, 0o755); err != nil {
 		t.Fatalf("하위 디렉토리 생성 실패: %v", err)
@@ -164,7 +164,7 @@ func TestScanFrontmatterKeys(t *testing.T) {
 		t.Errorf("ScanFrontmatterKeys() = %v, want %v", got, want)
 	}
 
-	// exclude 패턴은 파일명과 상대경로 양쪽에 적용된다.
+	// Exclude patterns apply to both basenames and relative paths.
 	got, err = ScanFrontmatterKeys(dir, []string{"a.md", "2026-08/*"}, io.Discard)
 	if err != nil {
 		t.Fatalf("ScanFrontmatterKeys(exclude) error = %v", err)
@@ -198,9 +198,9 @@ func TestExcluded(t *testing.T) {
 		{name: "슬래시로 끝나는 디렉토리 패턴", relPath: "templates/note.md", exclude: []string{"templates/"}, want: true},
 		{name: "조상 아닌 중간 이름은 불일치", relPath: "2026-08/templates.md", exclude: []string{"templates"}, want: false},
 		{
-			// macOS 디스크의 NFD 파일명이 설정 파일의 NFC 패턴과 매칭되어야 한다.
+			// NFD filenames on macOS must match NFC patterns from config.
 			name:    "NFD 파일명과 NFC 패턴",
-			relPath: "하루를 시작하기 전에.md", // 코드상 NFC
+			relPath: "하루를 시작하기 전에.md", // NFC in source
 			exclude: []string{"하루를 시작하기 전에.md"},
 			want:    true,
 		},
@@ -215,10 +215,10 @@ func TestExcluded(t *testing.T) {
 	}
 }
 
-// TestExcludedNFD는 실제 NFD 바이트열(디스크 상태)과 NFC 패턴의 매칭을 검증한다.
+// TestExcludedNFD verifies that raw NFD bytes (as the macOS filesystem
+// returns filenames) match an NFC pattern.
 func TestExcludedNFD(t *testing.T) {
-	// "하루.md"를 자모 분해(NFD)한 바이트열. macOS 파일시스템이 돌려주는 형태다.
-	nfd := "\u1112\u1161\u1105\u116e.md" // NFD: ᄒ+ᅡ+ᄅ+ᅮ
+	nfd := "\u1112\u1161\u1105\u116e.md" // NFD: decomposed jamo
 	nfc := "\ud558\ub8e8.md"             // NFC: 하루
 	if nfd == nfc {
 		t.Fatal("테스트 전제 오류: 두 문자열이 이미 같음")

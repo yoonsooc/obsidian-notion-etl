@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestDateDeriver는 dateFrom 규칙 체인의 파생 순서와 폴백을 검증한다 (D6).
+// TestDateDeriver verifies rule order and fallback of date derivation.
 func TestDateDeriver(t *testing.T) {
 	rules := []DateRule{
 		{FileLayout: "DN_060102"},
@@ -74,7 +74,7 @@ func TestDateDeriver(t *testing.T) {
 	}
 }
 
-// TestTitleFromFilename은 파일명 기반 제목 규칙을 검증한다 (D7).
+// TestTitleFromFilename verifies the filename-based title rule.
 func TestTitleFromFilename(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -99,7 +99,7 @@ func TestTitleFromFilename(t *testing.T) {
 	}
 }
 
-// TestObsidianURI는 obsidian:// 링크 조립과 QueryEscape 인코딩을 검증한다.
+// TestObsidianURI verifies obsidian:// link assembly and encoding.
 func TestObsidianURI(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -139,7 +139,7 @@ func TestObsidianURI(t *testing.T) {
 	}
 }
 
-// TestPropertyMapper는 mapping 규칙의 고정값, 값 변환, 폴백, 경고를 검증한다 (D9).
+// TestPropertyMapper verifies fixed values, value mapping, fallback, and warnings.
 func TestPropertyMapper(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -238,7 +238,7 @@ func TestPropertyMapper(t *testing.T) {
 	}
 }
 
-// recorder는 Run의 실행 순서 검증용 테스트 Transformer다.
+// recorder is a test Transformer that records execution order.
 type recorder struct {
 	name string
 	log  *[]string
@@ -255,7 +255,7 @@ func (r recorder) Transform(note Note, draft *PageDraft) error {
 	return nil
 }
 
-// TestRunOrder는 체인이 등록 순서대로 한 번씩 실행됨을 검증한다 (D8).
+// TestRunOrder verifies the chain runs once in registration order.
 func TestRunOrder(t *testing.T) {
 	var log []string
 	chain := []Transformer{
@@ -276,7 +276,7 @@ func TestRunOrder(t *testing.T) {
 	}
 }
 
-// TestRunError는 단계 에러 시 중단과 단계 이름 래핑을 검증한다.
+// TestRunError verifies abort on stage error and stage-name wrapping.
 func TestRunError(t *testing.T) {
 	var log []string
 	cause := errors.New("본문이 비어 있음")
@@ -301,7 +301,7 @@ func TestRunError(t *testing.T) {
 	}
 }
 
-// TestRunFullChain은 내장 Transformer 전체 조립을 통합 검증한다.
+// TestRunFullChain is an integration test of the full built-in chain.
 func TestRunFullChain(t *testing.T) {
 	chain := []Transformer{
 		NewDateDeriver([]DateRule{

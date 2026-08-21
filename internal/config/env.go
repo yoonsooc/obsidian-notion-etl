@@ -6,12 +6,11 @@ import (
 	"strings"
 )
 
-// notionTokenKey는 .env 파일에서 찾을 노션 API 토큰의 키 이름이다.
 const notionTokenKey = "NOTION_TOKEN"
 
-// LoadNotionToken은 .env 파일에서 NOTION_TOKEN 값을 읽는다.
-// 파싱은 줄 단위 KEY=VALUE 형식이며, '#'으로 시작하는 줄과 빈 줄은 무시한다.
-// 파일이 없거나 키가 없거나 값이 비어 있으면 에러를 반환한다.
+// LoadNotionToken reads NOTION_TOKEN from a .env file. Parsing is line-based
+// KEY=VALUE; blank lines and '#' comments are ignored. A missing file, key,
+// or empty value is an error.
 func LoadNotionToken(envPath string) (string, error) {
 	data, err := os.ReadFile(envPath)
 	if err != nil {
@@ -36,7 +35,7 @@ func LoadNotionToken(envPath string) (string, error) {
 	return "", fmt.Errorf("%s에 %s 키가 없음", envPath, notionTokenKey)
 }
 
-// trimQuotes는 문자열을 감싼 같은 종류의 따옴표 한 쌍을 제거한다.
+// trimQuotes removes one matching pair of surrounding quotes.
 func trimQuotes(s string) string {
 	if len(s) < 2 {
 		return s

@@ -1,10 +1,9 @@
 package main
 
-// pipeline.go는 이 프로젝트의 변환 정책이 코드로 모여 있는 곳이다
-// (D10-변환 규칙의 위치: 코드 파이프라인). 설정 파일(base.config.yaml)에는
-// 환경 정보(경로, DB, 제외 목록)만 두고, 도메인 규칙(날짜 파생, 속성 매핑)은
-// 여기서 선언한다. 규칙 변경은 이 파일 수정 + 리빌드로 이뤄지며, init이
-// 실행 시점에 실제 노션 스키마·노트와 대조해 검증한다 (D5-설정 역할 분리).
+// pipeline.go is the single source of the transform rules (date derivation,
+// property mapping). base.config.yaml holds only environment info (paths, DB,
+// excludes); changing a rule means editing this file and rebuilding, and init
+// validates the rules against the live Notion schema and actual notes.
 
 import (
 	"strings"
@@ -15,18 +14,19 @@ import (
 	"github.com/yoonsooc/obsidian-notion-etl/internal/transform"
 )
 
-// dailyDateRules는 데일리 노트의 날짜 파생 체인이다
-// (D6-대상 선정과 날짜 파생의 분리). 위에서부터 시도해 처음 성공한 값을 쓴다.
+// dailyDateRules is the date derivation chain for daily notes.
+// Rules are tried top to bottom and the first match wins.
 func dailyDateRules() []config.DateRule {
 	return []config.DateRule{
 		{FileLayout: "DN_060102"},        // DN_251101.md
-		{FileLayout: "060102"},           // 251101.md (접두사 없는 구형 파일명)
-		{FrontmatterKey: "created_date"}, // 파일명에 날짜가 없는 노트의 폴백
+		{FileLayout: "060102"},           // 251101.md (legacy, no prefix)
+		{FrontmatterKey: "created_date"}, // fallback for notes without a date in the filename
 	}
 }
 
-// platinumMapping은 노션 Platinum DB의 속성 매핑 규칙이다 (D9-실제 매핑 규칙).
-// docu_type 전 값이 Todo로 수렴하므로 값 변환 테이블 없이 고정값만 쓴다.
+// platinumMapping is the property mapping for the Notion Platinum DB.
+// Every docu_type value converges to Todo, so fixed values suffice and no
+// value translation table is needed.
 func platinumMapping() []config.MappingEntry {
 	return []config.MappingEntry{
 		{NotionProperty: "Type", Value: "Todo"},
@@ -34,9 +34,8 @@ func platinumMapping() []config.MappingEntry {
 	}
 }
 
-// buildPipeline은 마이그레이션 변환 체인을 조립한다 (D8-변환 아키텍처).
-// 내장 Transformer는 코드 규칙으로 조립하고, 설정으로 표현할 수 없는 로직은
-// 이 파일의 커스텀 Transformer(nfcTitle 등)로 같은 체인에 추가한다.
+// buildPipeline assembles the migration transform chain from the built-in
+// transformers plus custom ones defined in this file (e.g. nfcTitle).
 func buildPipeline(vaultName, target string, properties []config.Property) []transform.Transformer {
 	return []transform.Transformer{
 		transform.NewDateDeriver(toTransformDateRules(dailyDateRules())),
@@ -47,21 +46,19 @@ func buildPipeline(vaultName, target string, properties []config.Property) []tra
 	}
 }
 
-// nfcTitle은 제목을 NFC로 정규화하는 커스텀 Transformer다.
-// macOS 파일명은 NFD로 저장되므로, 한글 파일명 노트의 제목이 NFD인 채
-// 노션에 들어가면 재실행 시 title.equals 중복 검사가 불일치할 수 있다.
+// nfcTitle normalizes the title to NFC. macOS stores filenames in NFD, so a
+// title left in NFD (e.g. Korean filenames) would make the title.equals
+// duplicate check miss on re-runs.
 type nfcTitle struct{}
 
-// Name은 단계 이름을 반환한다.
 func (nfcTitle) Name() string { return "nfcTitle" }
 
-// Transform은 draft.Title을 NFC로 정규화한다.
 func (nfcTitle) Transform(_ transform.Note, draft *transform.PageDraft) error {
 	draft.Title = norm.NFC.String(draft.Title)
 	return nil
 }
 
-// toTransformDateRules는 규칙 정의를 파이프라인 타입으로 변환한다.
+// toTransformDateRules converts rule definitions to the pipeline type.
 func toTransformDateRules(rules []config.DateRule) []transform.DateRule {
 	out := make([]transform.DateRule, 0, len(rules))
 	for _, r := range rules {
@@ -70,11 +67,11 @@ func toTransformDateRules(rules []config.DateRule) []transform.DateRule {
 	return out
 }
 
-// toTransformMappingRules는 검증된 매핑을 파이프라인 타입으로 변환한다.
-// ValidateMapping의 "중복 엔트리는 무시" 규칙을 여기서 실제로 적용한다.
-// 속성 이름은 ValidateMapping과 같은 순서로 해석한다: 정확 일치가 있으면
-// 그대로 쓰고, 없을 때만 대소문자 무시 일치로 스키마의 실제 이름을 취한다
-// (대소문자만 다른 속성이 공존하는 스키마에서 오라우팅을 막기 위함).
+// toTransformMappingRules converts validated mapping entries to the pipeline
+// type, enforcing ValidateMapping's "duplicate entries are ignored" rule.
+// Property names resolve in the same order as ValidateMapping: exact match
+// first, then case-insensitive match to the schema's actual name, so schemas
+// with case-only property variants do not get misrouted.
 func toTransformMappingRules(entries []config.MappingEntry, properties []config.Property) []transform.MappingRule {
 	exact := make(map[string]struct{}, len(properties))
 	actualByFold := make(map[string]string, len(properties))

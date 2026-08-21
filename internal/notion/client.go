@@ -1,6 +1,5 @@
-// Package notion은 Rate Limiter와 429 재시도가 내장된 Notion API 클라이언트를 제공한다.
-// M1 범위는 데이터베이스 스키마 조회이며, M2/M3에서 페이지 생성·쿼리 메서드가
-// 같은 Client 위에 추가될 수 있는 구조를 갖는다.
+// Package notion provides a Notion API client with built-in rate limiting
+// and 429 retry handling.
 package notion
 
 import (
@@ -15,28 +14,25 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// apiVersion은 모든 요청의 Notion-Version 헤더에 사용하는 API 버전이다.
-// 2025-09-03부터 데이터베이스와 데이터 소스(data source)가 분리되어,
-// 속성 스키마 조회와 쿼리는 /v1/data_sources 계열 엔드포인트를 사용한다.
+// apiVersion is sent in the Notion-Version header. Since API 2025-09-03,
+// databases and data sources are separate: schema retrieval and queries use
+// the /v1/data_sources endpoints.
 const apiVersion = "2026-03-11"
 
-// defaultBaseURL은 Notion API의 기본 엔드포인트다.
-// 테스트에서는 Client.baseURL을 httptest 서버 주소로 교체한다.
 const defaultBaseURL = "https://api.notion.com"
 
-// maxRetries429는 429 응답에 대한 최대 재시도 횟수다.
+// maxRetries429 is the maximum number of retries for 429 responses.
 const maxRetries429 = 3
 
-// defaultRetryAfter는 429 응답에 Retry-After 헤더가 없을 때 대기하는 기본 시간이다.
+// defaultRetryAfter is used when a 429 response has no Retry-After header.
 const defaultRetryAfter = 1 * time.Second
 
-// maxRetryAfter는 Retry-After 헤더 값의 상한이다. 서버가 비정상적으로 큰 값
-// (예: 3600초)을 돌려줘도 조용히 장시간 대기하지 않도록 클램프한다.
+// maxRetryAfter clamps the Retry-After header so an abnormally large value
+// cannot cause a silent long wait.
 const maxRetryAfter = 60 * time.Second
 
-// Client는 Notion API 클라이언트다.
-// 모든 API 호출은 내장된 rate.Limiter를 통과하며, 외부에서 Limiter를
-// 주입하거나 우회할 수 없다.
+// Client is a Notion API client. Every API call passes through the built-in
+// rate.Limiter, which cannot be injected or bypassed.
 type Client struct {
 	token      string
 	httpClient *http.Client
@@ -44,8 +40,8 @@ type Client struct {
 	baseURL    string
 }
 
-// NewClient는 rate.NewLimiter(rate.Limit(2.5), 3)을 내장한 클라이언트를 만든다.
-// 모든 API 호출은 반드시 이 Limiter를 통과한다(우회 불가 구조).
+// NewClient returns a Client limited to 2.5 req/s (burst 3), staying under
+// Notion's 3 req/s rate limit.
 func NewClient(token string) *Client {
 	return &Client{
 		token:      token,
@@ -55,10 +51,8 @@ func NewClient(token string) *Client {
 	}
 }
 
-// do는 공통 요청 헬퍼다. Limiter 대기 후 요청을 실행하고,
-// 429 응답이면 Retry-After 헤더(초)만큼 대기한 뒤 최대 maxRetries429회 재시도한다.
-// 401/404는 재시도 없이 즉시 에러를 반환하며, 그 외 2xx가 아닌 응답도
-// 상태코드와 응답 본문을 담은 에러로 반환한다.
+// do waits on the limiter, sends the request, and retries 429 responses up to
+// maxRetries429 times honoring Retry-After. 401/404 fail immediately without retry.
 func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]byte, error) {
 	for attempt := 0; ; attempt++ {
 		if err := c.limiter.Wait(ctx); err != nil {
@@ -90,7 +84,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]by
 	}
 }
 
-// send는 단일 HTTP 요청을 실행하고 응답 본문, 상태코드, Retry-After 헤더 값을 반환한다.
+// send performs a single HTTP request and returns the body, status code, and Retry-After header.
 func (c *Client) send(ctx context.Context, method, path string, body []byte) ([]byte, int, string, error) {
 	var reader io.Reader
 	if body != nil {
@@ -118,9 +112,8 @@ func (c *Client) send(ctx context.Context, method, path string, body []byte) ([]
 	return respBody, resp.StatusCode, resp.Header.Get("Retry-After"), nil
 }
 
-// parseRetryAfter는 Retry-After 헤더(초 단위 정수)를 time.Duration으로 변환한다.
-// 헤더가 없거나 파싱할 수 없으면 defaultRetryAfter를, maxRetryAfter를 넘으면
-// maxRetryAfter를 반환한다.
+// parseRetryAfter converts a Retry-After header (integer seconds) to a duration,
+// falling back to defaultRetryAfter and clamping at maxRetryAfter.
 func parseRetryAfter(header string) time.Duration {
 	seconds, err := strconv.Atoi(header)
 	if err != nil || seconds < 0 {
@@ -133,7 +126,7 @@ func parseRetryAfter(header string) time.Duration {
 	return d
 }
 
-// sleepContext는 지정된 시간만큼 대기하되, 컨텍스트 취소 시 즉시 반환한다.
+// sleepContext sleeps for d or until the context is canceled.
 func sleepContext(ctx context.Context, d time.Duration) error {
 	if d <= 0 {
 		return nil

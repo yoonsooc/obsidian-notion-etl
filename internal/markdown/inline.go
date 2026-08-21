@@ -8,7 +8,7 @@ import (
 	"github.com/yoonsooc/obsidian-notion-etl/internal/notion"
 )
 
-// style은 인라인 파싱 중 누적되는 서식 상태다.
+// style is the formatting state accumulated during inline parsing.
 type style struct {
 	bold      bool
 	italic    bool
@@ -17,16 +17,16 @@ type style struct {
 	code      bool
 }
 
-// parseInline은 한 블록의 텍스트를 노션 rich_text 배열로 변환한다 (task-012).
-// 지원 문법: [[위키링크]] / [[문서|별칭]], `인라인코드`, ~~취소선~~,
-// ***bold+italic***, **bold**, *italic*. 짝이 없는 마커는 리터럴로 남긴다.
-// 정규식 없이 표준 문자열 함수로만 구현한다 (CLAUDE.md 규칙).
+// parseInline converts one block's text into a Notion rich_text array.
+// Supported syntax: [[wikilink]] / [[page|alias]], `inline code`,
+// ~~strikethrough~~, ***bold+italic***, **bold**, *italic*.
+// Unmatched markers are kept as literal text.
 func parseInline(text, vaultName string) []notion.RichText {
 	return parseStyled(text, style{}, vaultName)
 }
 
-// parseStyled는 st 서식이 적용된 상태에서 text를 파싱한다. 중첩 마커는
-// 내부 텍스트를 서식을 더한 채 재귀 파싱해 처리한다.
+// parseStyled parses text with the st formatting already applied. Nested
+// markers are handled by recursively parsing the inner text with the added style.
 func parseStyled(text string, st style, vaultName string) []notion.RichText {
 	out := make([]notion.RichText, 0, 4)
 	var literal strings.Builder
@@ -44,9 +44,9 @@ func parseStyled(text string, st style, vaultName string) []notion.RichText {
 		if strings.HasPrefix(rest, "[[") {
 			if label, target, consumed, ok := parseWikiLink(rest); ok {
 				flush()
-				// 노션 API가 본문 인라인 링크의 obsidian:// 스킴을 거부하므로
-				// (link.url 검증, task-012 변경 이력 참조) 밑줄 문서명 뒤에
-				// 복사용 URI를 일반 텍스트로 병기한다 (사용자 결정).
+				// The Notion API rejects obsidian:// URLs in inline links, so
+				// render the page name underlined and append the URI as plain
+				// text for copying.
 				underlined := st
 				underlined.underline = true
 				out = append(out, richSpan(label, underlined, ""))
@@ -55,7 +55,7 @@ func parseStyled(text string, st style, vaultName string) []notion.RichText {
 				continue
 			}
 		}
-		// 코드 스팬 내부는 다른 서식을 해석하지 않는다.
+		// No other formatting is interpreted inside a code span.
 		if strings.HasPrefix(rest, "`") {
 			if inner, consumed, ok := between(rest, "`"); ok {
 				flush()
@@ -76,7 +76,7 @@ func parseStyled(text string, st style, vaultName string) []notion.RichText {
 				continue
 			}
 		}
-		// "***"는 "**"보다 먼저 검사해 bold+italic으로 해석한다.
+		// Check "***" before "**" so it parses as bold+italic.
 		if strings.HasPrefix(rest, "***") {
 			if inner, consumed, ok := betweenStyled(rest, "***"); ok {
 				flush()
@@ -117,9 +117,9 @@ func parseStyled(text string, st style, vaultName string) []notion.RichText {
 	return out
 }
 
-// between은 rest가 marker로 시작할 때, 다음 marker까지의 내부 문자열과
-// 전체 소비 길이(바이트)를 돌려준다. 닫는 marker가 없거나 내부가 비어 있으면
-// 마커로 취급하지 않는다.
+// between returns the text between the leading marker and its next occurrence,
+// plus the total bytes consumed. A missing closing marker or empty inner text
+// means no match.
 func between(rest, marker string) (inner string, consumed int, ok bool) {
 	m := len(marker)
 	end := strings.Index(rest[m:], marker)
@@ -129,11 +129,11 @@ func between(rest, marker string) (inner string, consumed int, ok bool) {
 	return rest[m : m+end], m + end + m, true
 }
 
-// betweenStyled는 서식 마커(**, *, ~~, ***)용 between이다. 두 가지 가드를 더한다.
-//   - 내부가 공백/탭으로 시작하거나 끝나면 거부: "2 ** 10, 2 ** 20" 같은
-//     문장에서 원문에 없던 서식이 생기는 오탐 방지 (CommonMark 규칙과 일치)
-//   - 내부에 홀수 개의 백틱이 있으면 거부: 닫는 마커가 코드 스팬 안에 있는
-//     경우("a**b `c**d`")를 마커로 잘못 매칭해 코드 스팬을 파괴하는 것 방지
+// betweenStyled is between for style markers (**, *, ~~, ***) with two guards:
+//   - reject inner text starting or ending with whitespace, so text like
+//     "2 ** 10, 2 ** 20" gains no formatting (matches CommonMark)
+//   - reject inner text with an odd number of backticks, so a closing marker
+//     inside a code span ("a**b `c**d`") cannot break the span
 func betweenStyled(rest, marker string) (inner string, consumed int, ok bool) {
 	inner, consumed, ok = between(rest, marker)
 	if !ok || strings.Trim(inner, " \t") != inner || strings.Count(inner, "`")%2 != 0 {
@@ -142,11 +142,11 @@ func betweenStyled(rest, marker string) (inner string, consumed int, ok bool) {
 	return inner, consumed, true
 }
 
-// parseWikiLink는 "[[문서명]]" 또는 "[[문서명|별칭]]"으로 시작하는 텍스트에서
-// 표시 텍스트, 링크 대상, 소비 길이를 꺼낸다.
-// 위키링크는 줄을 넘을 수 없으므로(옵시디언 규칙) 내부에 개행이 있으면 거부한다.
-// 링크 대상의 헤딩/블록 앵커("문서#섹션", "문서#^블록")는 옵시디언 URI의 file
-// 파라미터가 해석하지 못하므로 잘라내고 문서명만 대상에 남긴다.
+// parseWikiLink extracts the label, link target, and bytes consumed from text
+// starting with "[[page]]" or "[[page|alias]]". Wikilinks cannot span lines
+// (Obsidian rule), so inner newlines are rejected. Heading/block anchors
+// ("page#section", "page#^block") are stripped because the Obsidian URI file
+// parameter cannot resolve them.
 func parseWikiLink(rest string) (label, target string, consumed int, ok bool) {
 	end := strings.Index(rest[2:], "]]")
 	if end < 0 {
@@ -171,7 +171,7 @@ func parseWikiLink(rest string) (label, target string, consumed int, ok bool) {
 	return label, target, 2 + end + 2, true
 }
 
-// richSpan은 서식과 링크가 적용된 rich text 원소 하나를 만든다.
+// richSpan builds one rich text element with the given style and link.
 func richSpan(text string, st style, linkURL string) notion.RichText {
 	rt := notion.RichText{Type: "text", Text: notion.Text{Content: text}}
 	if linkURL != "" {
@@ -189,17 +189,16 @@ func richSpan(text string, st style, linkURL string) notion.RichText {
 	return rt
 }
 
-// wikiURI는 위키링크 대상의 옵시디언 URI를 만든다. 옵시디언은 문서명만으로
-// 볼트 전체에서 노트를 찾으므로 target 디렉토리는 넣지 않는다.
-// 공백은 %20으로 인코딩한다 (transform의 Obsidian_URI와 같은 규칙).
+// wikiURI builds the Obsidian URI for a wikilink target. Obsidian resolves a
+// note anywhere in the vault by name, so the target directory is omitted.
 func wikiURI(vaultName, target string) string {
 	return "obsidian://open?vault=" + escapeURIComponent(vaultName) +
 		"&file=" + escapeURIComponent(target)
 }
 
-// escapeURIComponent는 URI 컴포넌트를 인코딩하되 공백을 '+'가 아니라 "%20"으로
-// 쓴다 (internal/transform의 동명 헬퍼와 같은 규칙. 패키지 간 의존을 만들지
-// 않기 위한 의도적 중복).
+// escapeURIComponent encodes a URI component with spaces as "%20" instead of
+// '+' (same rule as the identically named helper in internal/transform;
+// duplicated deliberately to avoid a package dependency).
 func escapeURIComponent(s string) string {
 	return strings.ReplaceAll(url.QueryEscape(s), "+", "%20")
 }

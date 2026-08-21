@@ -1,5 +1,5 @@
-// Package markdown은 마크다운 본문을 노션 블록 슬라이스로 변환한다.
-// 줄 단위 파싱만 수행하며, 정규식 없이 표준 문자열 함수로 구현한다 (PRD D4, FR-2 5항).
+// Package markdown converts a markdown body into a slice of Notion blocks.
+// Parsing is line-based and uses plain string functions (no regex).
 package markdown
 
 import (
@@ -8,32 +8,32 @@ import (
 	"github.com/yoonsooc/obsidian-notion-etl/internal/notion"
 )
 
-// chunkLimit은 노션 rich_text content의 최대 길이(rune 기준)다.
+// chunkLimit is the Notion maximum length of a rich_text content, in runes.
 const chunkLimit = 2000
 
-// maxRichTextPerBlock은 블록 하나의 rich_text 배열이 가질 수 있는 최대 원소 수다.
+// maxRichTextPerBlock is the Notion maximum rich_text array size per block.
 const maxRichTextPerBlock = 100
 
-// ToBlocks는 마크다운 본문을 노션 블록으로 변환한다.
-// 변환 규칙 (줄 단위):
-//   - "# " / "## " / "### "         -> heading_1/2/3 ("#### " 이상은 heading_3 폴백)
-//   - "- [ ] " / "- [x] "(대소문자) -> to_do (checked 반영)
-//   - "- " / "* "                   -> bulleted_list_item (중첩은 평탄화: 선행 공백 무시)
-//   - 그 외 비어 있지 않은 줄        -> 연속된 줄들을 빈 줄 경계로 묶어 하나의 paragraph
+// ToBlocks converts a markdown body into Notion blocks. Line-based rules:
+//   - "# " / "## " / "### "              -> heading_1/2/3 ("#### "+ falls back to heading_3)
+//   - "- [ ] " / "- [x] " (case-insensitive) -> to_do
+//   - "- " / "* "                        -> bulleted_list_item (nesting flattened)
+//   - other non-empty lines              -> consecutive lines grouped into one paragraph
 //
-// 수평선("---" 등 대시로만 이루어진 3자 이상의 단독 줄)은 블록을 만들지 않고
-// 문단 경계로만 작동한다. 현재 블록 타입 집합에 divider가 없으므로,
-// 리터럴 "---" 문단을 남기는 것보다 생략하는 쪽이 원문 의도에 가깝기 때문이다.
+// Horizontal rules (a standalone line of 3+ dashes) emit no block and only
+// act as paragraph boundaries, since the supported block set has no divider
+// and omitting them is closer to the source intent than a literal "---".
 //
-// 각 블록의 텍스트는 인라인 파서(parseInline)를 거쳐 서식 있는 rich_text로
-// 변환된다 (task-012). vaultName은 [[위키링크]]의 옵시디언 URI 생성에 쓰인다.
-// rich_text 원소는 2,000자(rune) 단위로 분할되고, 블록당 원소 100개를 넘으면
-// 같은 타입 블록 여러 개로 이어 붙인다. 빈 본문은 빈 슬라이스를 반환한다.
+// Block text goes through the inline parser to produce styled rich_text;
+// vaultName is used to build Obsidian URIs for [[wikilinks]]. Rich text
+// elements are split at 2,000 runes, and blocks exceeding 100 elements are
+// continued as additional blocks of the same type. An empty body yields an
+// empty slice.
 func ToBlocks(body, vaultName string) []notion.Block {
 	lines := strings.Split(body, "\n")
 	blocks := make([]notion.Block, 0, len(lines))
 
-	// para는 빈 줄 경계로 하나의 paragraph가 될 연속 줄 묶음이다.
+	// para accumulates consecutive lines that form one paragraph.
 	para := make([]string, 0, len(lines))
 	flush := func() {
 		if len(para) == 0 {
@@ -46,7 +46,7 @@ func ToBlocks(body, vaultName string) []notion.Block {
 
 	for _, raw := range lines {
 		line := strings.TrimSuffix(raw, "\r")
-		// 마커 판별은 선행/후행 공백을 무시한 문자열로 수행한다 (중첩 평탄화).
+		// Detect markers on the trimmed line so nested items are flattened.
 		marker := strings.TrimSpace(line)
 
 		if marker == "" || isRule(marker) {
@@ -60,7 +60,7 @@ func ToBlocks(body, vaultName string) []notion.Block {
 			})
 			continue
 		}
-		// to_do 마커("- [ ] ")는 불릿 마커("- ")를 포함하므로 먼저 검사한다.
+		// The to_do marker ("- [ ] ") contains the bullet marker, so check it first.
 		if text, checked, ok := parseToDo(marker); ok {
 			flush()
 			blocks = appendRich(blocks, text, vaultName, func(rt []notion.RichText) notion.Block {
@@ -79,9 +79,9 @@ func ToBlocks(body, vaultName string) []notion.Block {
 	return blocks
 }
 
-// appendRich는 텍스트를 인라인 파싱한 뒤 노션 제약(원소당 2,000자, 블록당
-// 원소 100개)에 맞춰 같은 타입 블록 하나 이상으로 덧붙인다.
-// 텍스트가 비어 있으면 빈 텍스트 블록 하나를 만든다 (마커만 있는 줄도 블록으로 유지).
+// appendRich inline-parses text and appends one or more blocks of the same
+// type, honoring the Notion limits (2,000 runes per element, 100 elements per
+// block). Empty text still produces one empty block (marker-only lines survive).
 func appendRich(blocks []notion.Block, text, vaultName string, build func([]notion.RichText) notion.Block) []notion.Block {
 	spans := splitLongSpans(parseInline(text, vaultName))
 	if len(spans) == 0 {
@@ -94,8 +94,8 @@ func appendRich(blocks []notion.Block, text, vaultName string, build func([]noti
 	return blocks
 }
 
-// splitLongSpans는 2,000자(rune)를 넘는 rich text 원소를 같은 서식의
-// 원소 여러 개로 분할한다.
+// splitLongSpans splits rich text elements over 2,000 runes into multiple
+// elements with identical styling.
 func splitLongSpans(spans []notion.RichText) []notion.RichText {
 	out := make([]notion.RichText, 0, len(spans))
 	for _, span := range spans {
@@ -113,7 +113,7 @@ func splitLongSpans(spans []notion.RichText) []notion.RichText {
 	return out
 }
 
-// isRule은 대시('-')로만 이루어진 3자 이상의 줄(수평선)인지 판별한다.
+// isRule reports whether s is a horizontal rule: 3+ characters, all dashes.
 func isRule(s string) bool {
 	if len(s) < 3 {
 		return false
@@ -121,8 +121,8 @@ func isRule(s string) bool {
 	return strings.Count(s, "-") == len(s)
 }
 
-// parseHeading은 '#' 1개 이상과 공백으로 시작하는 헤딩 줄에서 레벨과 본문을 꺼낸다.
-// 헤딩 줄이 아니면 ok가 거짓이다. 레벨 4 이상은 notion.NewHeading이 heading_3으로 클램프한다.
+// parseHeading extracts the level and text from a heading line ('#'s followed
+// by a space); ok is false otherwise. Levels above 3 are clamped by notion.NewHeading.
 func parseHeading(s string) (level int, text string, ok bool) {
 	rest := strings.TrimLeft(s, "#")
 	if len(rest) == len(s) || !strings.HasPrefix(rest, " ") {
@@ -131,9 +131,9 @@ func parseHeading(s string) (level int, text string, ok bool) {
 	return len(s) - len(rest), strings.TrimSpace(rest), true
 }
 
-// parseToDo는 to_do 마커("- [ ] ", "- [x] ", "- [X] ")로 시작하는 줄에서
-// 본문과 체크 여부를 꺼낸다. 본문 없이 마커만 있는 줄("- [ ]")도 빈 체크박스로
-// 인정한다 (Obsidian에서 흔한 형태). to_do 줄이 아니면 ok가 거짓이다.
+// parseToDo extracts the text and checked state from a to_do line
+// ("- [ ] ", "- [x] ", "- [X] "). A bare marker with no text ("- [ ]") is an
+// empty checkbox, as commonly written in Obsidian; ok is false otherwise.
 func parseToDo(s string) (text string, checked bool, ok bool) {
 	markers := []struct {
 		prefix  string
@@ -148,7 +148,8 @@ func parseToDo(s string) (text string, checked bool, ok bool) {
 		if !found {
 			continue
 		}
-		// 마커 뒤는 줄 끝이거나 공백이어야 한다 ("- [ ]abc"는 to_do가 아님).
+		// The marker must end the line or be followed by whitespace
+		// ("- [ ]abc" is not a to_do).
 		if rest != "" && !strings.HasPrefix(rest, " ") && !strings.HasPrefix(rest, "\t") {
 			continue
 		}
@@ -157,8 +158,7 @@ func parseToDo(s string) (text string, checked bool, ok bool) {
 	return "", false, false
 }
 
-// parseBullet은 불릿 마커("- ", "* ")로 시작하는 줄에서 본문을 꺼낸다.
-// 불릿 줄이 아니면 ok가 거짓이다.
+// parseBullet extracts the text from a bullet line ("- ", "* "); ok is false otherwise.
 func parseBullet(s string) (text string, ok bool) {
 	if !strings.HasPrefix(s, "- ") && !strings.HasPrefix(s, "* ") {
 		return "", false

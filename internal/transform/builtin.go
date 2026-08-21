@@ -8,31 +8,31 @@ import (
 	"time"
 )
 
-// dateLayout은 draft.Date와 frontmatter 날짜 값의 표준 형식이다.
+// dateLayout is the canonical format for draft.Date and frontmatter dates.
 const dateLayout = "2006-01-02"
 
-// stem은 파일명에서 ".md" 확장자를 제거한 이름을 반환한다.
+// stem returns the filename without its ".md" extension.
 func stem(filename string) string {
 	return strings.TrimSuffix(filename, ".md")
 }
 
-// DateRule은 날짜 파생 규칙 하나다 (config.DateRule과 필드 호환).
-// FileLayout과 FrontmatterKey 중 하나만 설정한다.
+// DateRule is one date derivation rule (field-compatible with config.DateRule).
+// Set exactly one of FileLayout or FrontmatterKey.
 type DateRule struct {
-	FileLayout     string // 파일명(확장자 제외)을 해석할 Go 시간 레이아웃
-	FrontmatterKey string // 날짜 값을 읽을 frontmatter 키
+	FileLayout     string // Go time layout applied to the filename (without extension)
+	FrontmatterKey string // frontmatter key to read the date from
 }
 
-// dateDeriver는 dateFrom 규칙 체인으로 draft.Date를 파생한다 (D6).
+// dateDeriver derives draft.Date from a chain of DateRules.
 type dateDeriver struct {
 	rules []DateRule
 }
 
-// NewDateDeriver는 규칙을 순서대로 시도해 draft.Date를 채우는 Transformer를
-// 만든다. FileLayout은 파일명(확장자 제외)에 time.Parse를 적용하고,
-// FrontmatterKey는 값을 2006-01-02로 파싱하되 실패하면 앞 10자만
-// 재시도한다(RFC3339 대응). 전부 실패하면 Date를 비우고 Warnings에
-// 기록한다 (에러가 아니다, D6).
+// NewDateDeriver returns a Transformer that tries rules in order to fill
+// draft.Date. FileLayout applies time.Parse to the filename (without
+// extension); FrontmatterKey parses the value as 2006-01-02, retrying with
+// the first 10 characters for RFC3339-style values. If all rules fail, Date
+// stays empty and a warning is recorded; it is not an error.
 func NewDateDeriver(rules []DateRule) Transformer {
 	return &dateDeriver{rules: rules}
 }
@@ -59,7 +59,7 @@ func (d *dateDeriver) Transform(note Note, draft *PageDraft) error {
 			draft.Date = t.Format(dateLayout)
 			return nil
 		}
-		// RFC3339처럼 날짜 뒤에 시각이 붙은 값은 앞 10자만 다시 시도한다.
+		// Retry with the first 10 characters for values with a time suffix (RFC3339).
 		if r := []rune(v); len(r) > 10 {
 			if t, err := time.Parse(dateLayout, string(r[:10])); err == nil {
 				draft.Date = t.Format(dateLayout)
@@ -73,11 +73,11 @@ func (d *dateDeriver) Transform(note Note, draft *PageDraft) error {
 	return nil
 }
 
-// titleFromFilename은 파일명으로 제목을 정한다 (D7).
+// titleFromFilename derives the title from the filename.
 type titleFromFilename struct{}
 
-// NewTitleFromFilename은 draft.Title을 파일명에서 ".md"를 제거한 값으로
-// 채우는 Transformer를 만든다 (D7).
+// NewTitleFromFilename returns a Transformer that sets draft.Title to the
+// filename without its ".md" extension.
 func NewTitleFromFilename() Transformer {
 	return titleFromFilename{}
 }
@@ -89,16 +89,15 @@ func (titleFromFilename) Transform(note Note, draft *PageDraft) error {
 	return nil
 }
 
-// obsidianURI는 노트를 여는 obsidian:// 링크를 만든다.
+// obsidianURI builds the obsidian:// link that opens the note.
 type obsidianURI struct {
 	vaultName string
 	target    string
 }
 
-// NewObsidianURI는 draft.ObsidianURI를
-// obsidian://open?vault=<vault>&file=<target/relPath에서 .md 제거> 형태로
-// 채우는 Transformer를 만든다. vaultName은 볼트 이름, target은 볼트 기준
-// 상대 디렉토리다.
+// NewObsidianURI returns a Transformer that sets draft.ObsidianURI to
+// obsidian://open?vault=<vault>&file=<target/relPath without .md>.
+// target is the note directory relative to the vault root.
 func NewObsidianURI(vaultName, target string) Transformer {
 	return &obsidianURI{vaultName: vaultName, target: target}
 }
@@ -112,34 +111,33 @@ func (o *obsidianURI) Transform(note Note, draft *PageDraft) error {
 	return nil
 }
 
-// escapeURIComponent는 URI 컴포넌트를 인코딩하되 공백을 '+'가 아니라 "%20"으로
-// 쓴다. Obsidian은 URI 값을 decodeURIComponent 방식으로 해석하므로 '+'를
-// 공백으로 되돌리지 않아, url.QueryEscape 그대로는 공백 포함 경로가 깨진다.
+// escapeURIComponent encodes a URI component with spaces as "%20" instead of
+// '+': Obsidian decodes URI values decodeURIComponent-style and does not turn
+// '+' back into a space, so plain url.QueryEscape breaks paths with spaces.
 func escapeURIComponent(s string) string {
 	return strings.ReplaceAll(url.QueryEscape(s), "+", "%20")
 }
 
-// MappingRule은 속성 매핑 규칙 하나다 (config.MappingEntry와 필드 호환).
-// Value를 설정하면 고정값 주입, Frontmatter를 설정하면 노트 값 매핑이다.
+// MappingRule is one property mapping rule (field-compatible with
+// config.MappingEntry). Value injects a fixed value; Frontmatter maps a note value.
 type MappingRule struct {
-	Frontmatter    string            // 값을 읽을 frontmatter 키
-	NotionProperty string            // 채울 노션 속성 이름
-	Value          string            // 고정값 (설정 시 Frontmatter보다 우선)
-	Values         map[string]string // 노트 값 -> 노션 값 변환 테이블 (선택)
-	Default        string            // 값이 비거나 테이블에 없을 때의 폴백 (선택)
+	Frontmatter    string            // frontmatter key to read the value from
+	NotionProperty string            // Notion property name to fill
+	Value          string            // fixed value (takes precedence over Frontmatter)
+	Values         map[string]string // note value -> Notion value table (optional)
+	Default        string            // fallback when the value is empty or unmapped (optional)
 }
 
-// propertyMapper는 mapping 규칙 체인으로 draft.Properties를 채운다 (D8, D9).
+// propertyMapper fills draft.Properties from a chain of MappingRules.
 type propertyMapper struct {
 	rules []MappingRule
 }
 
-// NewPropertyMapper는 규칙을 순서대로 적용해 draft.Properties를 채우는
-// Transformer를 만든다. Value가 설정된 규칙은 고정값을 주입한다.
-// Frontmatter가 설정된 규칙은 노트 값을 Values 테이블로 변환하며, 값이
-// 비거나 테이블에 없으면 Default를 쓰고, Default도 없으면 그 속성은
-// 건너뛰고 Warnings에 기록한다. Values 테이블이 없으면 노트 값을 그대로
-// 쓴다.
+// NewPropertyMapper returns a Transformer that applies rules in order to fill
+// draft.Properties. A rule with Value injects that fixed value. A rule with
+// Frontmatter maps the note value through the Values table; when the value is
+// empty or unmapped, Default is used, and without a Default the property is
+// skipped with a warning. Without a Values table the note value is used as is.
 func NewPropertyMapper(rules []MappingRule) Transformer {
 	return &propertyMapper{rules: rules}
 }
@@ -171,8 +169,8 @@ func (p *propertyMapper) Transform(note Note, draft *PageDraft) error {
 	return nil
 }
 
-// resolveValue는 frontmatter 값 raw에 규칙의 변환 테이블과 폴백을 적용한다.
-// 두 번째 반환값이 false면 채울 값이 없다는 뜻이다.
+// resolveValue applies the rule's mapping table and fallback to raw.
+// A false second return means there is no value to fill.
 func resolveValue(rule MappingRule, raw string) (string, bool) {
 	if raw == "" {
 		if rule.Default == "" {

@@ -10,7 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// newValidBase는 테스트용 임시 볼트 구조와 그에 맞는 유효한 BaseConfig를 만든다.
+// newValidBase builds a temp vault layout and a matching valid BaseConfig.
 func newValidBase(t *testing.T) BaseConfig {
 	t.Helper()
 	vault := t.TempDir()
@@ -35,7 +35,7 @@ func newValidBase(t *testing.T) BaseConfig {
 	return cfg
 }
 
-// writeBaseYAML은 cfg를 yaml 파일로 저장하고 경로를 돌려준다.
+// writeBaseYAML saves cfg as a YAML file and returns its path.
 func writeBaseYAML(t *testing.T, cfg BaseConfig) string {
 	t.Helper()
 	data, err := yaml.Marshal(&cfg)
@@ -49,9 +49,9 @@ func writeBaseYAML(t *testing.T, cfg BaseConfig) string {
 	return path
 }
 
-// TestLoadBaseSameDirGuard는 문자열이 달라도 실제로 같은 디렉토리를 가리키는
-// 설정(심볼릭 링크 우회)이 루프 방지 가드에 걸리는지 검증한다.
-// macOS의 대소문자 무시·NFD 정규화 케이스도 os.SameFile 기반이라 같은 경로로 잡힌다.
+// TestLoadBaseSameDirGuard verifies the loop guard catches paths that differ
+// as strings but resolve to the same directory (symlink; the os.SameFile check
+// also covers macOS case-insensitivity and NFC/NFD normalization).
 func TestLoadBaseSameDirGuard(t *testing.T) {
 	cfg := newValidBase(t)
 	srcDir := filepath.Join(cfg.Obsidian.Vault.ToNotion.Path, cfg.Obsidian.Vault.ToNotion.Target)
@@ -74,7 +74,7 @@ func TestLoadBase(t *testing.T) {
 	tests := []struct {
 		name    string
 		mutate  func(cfg *BaseConfig)
-		wantErr string // 에러 메시지에 포함되어야 하는 문자열. 빈 값이면 성공 기대.
+		wantErr string // substring expected in the error; empty means success
 	}{
 		{
 			name:   "유효한 설정",
@@ -192,7 +192,7 @@ func TestLoadBaseFileErrors(t *testing.T) {
 	}
 }
 
-// newLatest는 테스트용 LatestConfig를 만든다.
+// newLatest builds a LatestConfig fixture.
 func newLatest() *LatestConfig {
 	cfg := &LatestConfig{
 		GeneratedAt: "",
@@ -211,7 +211,7 @@ func newLatest() *LatestConfig {
 	return cfg
 }
 
-// countBackups는 backupDir 안의 파일 개수를 센다.
+// countBackups counts files in backupDir.
 func countBackups(t *testing.T, backupDir string) int {
 	t.Helper()
 	entries, err := os.ReadDir(backupDir)
@@ -230,7 +230,7 @@ func TestSaveLatest(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		second      func(cfg *LatestConfig) // 두 번째 저장 전 변형. nil이면 한 번만 저장.
+		second      func(cfg *LatestConfig) // mutation before a second save; nil saves once
 		wantBackups int
 	}{
 		{
@@ -309,8 +309,8 @@ func TestSaveLatest(t *testing.T) {
 	}
 }
 
-// TestSaveLatestArchiveSameSecond는 같은 초에 두 번 아카이빙이 일어나도
-// 이전 아카이브가 덮어써지지 않고 접미사로 보존되는지 검증한다.
+// TestSaveLatestArchiveSameSecond verifies that two archives within the same
+// second are preserved via name suffixes instead of overwriting.
 func TestSaveLatestArchiveSameSecond(t *testing.T) {
 	now := time.Date(2026, 8, 21, 10, 30, 0, 0, time.UTC)
 	dir := t.TempDir()
@@ -321,7 +321,7 @@ func TestSaveLatestArchiveSameSecond(t *testing.T) {
 		t.Fatalf("최초 SaveLatest 실패: %v", err)
 	}
 
-	// 같은 초(now)에 서로 다른 변경으로 두 번 더 저장하여 아카이브를 두 번 유발한다.
+	// Trigger two archives at the same timestamp with distinct changes.
 	for i, id := range []string{"changed-1", "changed-2"} {
 		updated := newLatest()
 		updated.Notion.DatabaseID = id

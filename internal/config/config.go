@@ -1,5 +1,5 @@
-// Package config는 base.config.yaml / latest.config.yaml의 로드·검증·저장·아카이빙과
-// .env 파일 로딩을 담당한다.
+// Package config loads, validates, saves, and archives base.config.yaml /
+// latest.config.yaml, and reads the Notion token from a .env file.
 package config
 
 import (
@@ -14,11 +14,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// VaultTarget은 옵시디언 볼트 내 이관 대상 디렉토리 하나를 가리킨다.
-// Exclude는 target 하위 재귀 스캔에서 제외할 파일의 glob 패턴 목록이다
-// (gitignore처럼 제외 대상만 지정, 상대경로와 파일명 양쪽에 매칭).
-// 변환 규칙(날짜 파생, 속성 매핑)은 설정이 아니라 코드(pipeline.go)에 있다
-// (D10-변환 규칙의 위치).
+// VaultTarget points at one directory inside an Obsidian vault.
+// Exclude lists glob patterns (matched against both relative paths and
+// base names) for files to skip during the recursive scan.
 type VaultTarget struct {
 	Name          string   `yaml:"name"`
 	Path          string   `yaml:"path"`
@@ -27,7 +25,7 @@ type VaultTarget struct {
 	Exclude       []string `yaml:"exclude,omitempty"`
 }
 
-// BaseConfig는 base.config.yaml의 구조를 나타낸다.
+// BaseConfig models base.config.yaml.
 type BaseConfig struct {
 	Obsidian struct {
 		Vault struct {
@@ -43,11 +41,10 @@ type BaseConfig struct {
 	} `yaml:"notion"`
 }
 
-// LoadBase는 base.config.yaml을 읽고 검증한다.
-// 검증 내용: 필수 필드가 비어 있지 않아야 하고, toNotion/fromNotion의
-// path+target 결합 경로가 서로 달라야 하며(루프 방지 가드), toNotion 소스
-// 디렉토리가 실제로 존재해야 한다. fromNotion 백업 디렉토리는 없으면 생성한다.
-// effectiveDate는 값이 있으면 2006-01-02 형식이어야 한다.
+// LoadBase reads and validates base.config.yaml. Required fields must be
+// non-empty, the source and backup directories must differ (sync-loop guard),
+// and the source directory must exist; the backup directory is created if
+// missing. effectiveDate, when set, must use the 2006-01-02 layout.
 func LoadBase(path string) (*BaseConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -64,8 +61,8 @@ func LoadBase(path string) (*BaseConfig, error) {
 	return cfg, nil
 }
 
-// decodeBase는 base 설정 yaml을 엄격 모드로 파싱한다. 구조체에 없는 키(오타)는
-// 에러로 처리한다. 경로 검증 등은 하지 않으므로 파싱 단계만 따로 테스트할 수 있다.
+// decodeBase parses base config YAML strictly (KnownFields) so unknown or
+// misspelled keys fail instead of being silently dropped. No path validation.
 func decodeBase(data []byte) (*BaseConfig, error) {
 	var cfg BaseConfig
 	dec := yaml.NewDecoder(bytes.NewReader(data))
@@ -76,18 +73,18 @@ func decodeBase(data []byte) (*BaseConfig, error) {
 	return &cfg, nil
 }
 
-// SourceDir는 toNotion의 path와 target을 결합한 절대경로를 돌려준다.
+// SourceDir returns the cleaned join of the toNotion path and target.
 func (c *BaseConfig) SourceDir() string {
 	return filepath.Clean(filepath.Join(c.Obsidian.Vault.ToNotion.Path, c.Obsidian.Vault.ToNotion.Target))
 }
 
-// BackupDir는 fromNotion의 path와 target을 결합한 절대경로를 돌려준다.
+// BackupDir returns the cleaned join of the fromNotion path and target.
 func (c *BaseConfig) BackupDir() string {
 	return filepath.Clean(filepath.Join(c.Obsidian.Vault.FromNotion.Path, c.Obsidian.Vault.FromNotion.Target))
 }
 
-// validate는 BaseConfig의 필수 값과 경로 조건을 검사한다.
-// 검사 통과 시 fromNotion 백업 디렉토리를 생성하는 부수 효과가 있다.
+// validate checks required fields and path constraints; as a side effect it
+// creates the fromNotion backup directory.
 func (c *BaseConfig) validate() error {
 	required := []struct {
 		field string
@@ -147,9 +144,9 @@ func (c *BaseConfig) validate() error {
 		return fmt.Errorf("fromNotion 백업 디렉토리 생성 실패: %w", err)
 	}
 
-	// macOS 파일시스템은 대소문자를 무시하고 유니코드 정규화(NFC/NFD)에도 무관하므로
-	// 문자열이 달라도 같은 물리 디렉토리일 수 있다. 실제 파일 동일성으로 재검사한다
-	// (심볼릭 링크를 통한 우회도 함께 걸러진다).
+	// macOS filesystems are case-insensitive and Unicode-normalization
+	// (NFC/NFD) insensitive, so differing strings can name the same physical
+	// directory. Re-check with os.SameFile, which also catches symlink aliases.
 	backupInfo, err := os.Stat(backupDir)
 	if err != nil {
 		return fmt.Errorf("fromNotion 백업 디렉토리 확인 실패: %w", err)

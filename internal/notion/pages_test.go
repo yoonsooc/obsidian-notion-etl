@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-// assertJSONEq는 JSON 본문이 기대 JSON과 구조적으로 동일한지 검사한다.
+// assertJSONEq checks that two JSON bodies are structurally equal.
 func assertJSONEq(t *testing.T, got []byte, want string) {
 	t.Helper()
 	var gotV, wantV any
@@ -145,7 +145,7 @@ func TestCreatePagePropertySerialization(t *testing.T) {
 		"Type":   {Type: "select", Value: "Diary"},
 		"Status": {Type: "status", Value: "Done"},
 		"Memo":   {Type: "rich_text", Value: "메모"},
-		"Empty":  {Type: "select", Value: ""}, // 빈 Value는 전송되지 않아야 한다.
+		"Empty":  {Type: "select", Value: ""}, // empty Value must not be sent
 	}
 	pageID, err := c.CreatePage(context.Background(), "ds-1", properties, nil)
 	if err != nil {
@@ -190,7 +190,7 @@ func TestCreatePageUnsupportedPropertyType(t *testing.T) {
 	}
 }
 
-// countChildren은 요청 본문의 children 배열 길이를 반환한다.
+// countChildren returns the length of the children array in a request body.
 func countChildren(t *testing.T, body []byte) int {
 	t.Helper()
 	var payload struct {

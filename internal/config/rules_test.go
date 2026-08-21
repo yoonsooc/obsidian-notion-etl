@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// testProperties는 ValidateMapping 테스트에 쓰는 노션 스키마 표본이다.
+// testProperties is a sample Notion schema for ValidateMapping tests.
 func testProperties() []Property {
 	return []Property{
 		{Name: "Name", Type: "title"},
@@ -24,8 +24,8 @@ func TestValidateMapping(t *testing.T) {
 	tests := []struct {
 		name         string
 		mapping      []MappingEntry
-		wantWarnings []string // 각 경고 메시지에 포함되어야 하는 문자열 (순서 일치)
-		wantErr      string   // 에러 메시지에 포함되어야 하는 문자열. 빈 값이면 성공 기대.
+		wantWarnings []string // substrings expected per warning, in order
+		wantErr      string   // substring expected in the error; empty means success
 	}{
 		{
 			name:    "빈 매핑",
@@ -39,8 +39,8 @@ func TestValidateMapping(t *testing.T) {
 			},
 		},
 		{
-			// v1이 페이로드를 만들 수 없는 타입은 init에서 미리 거른다
-			// (통과시키면 migrate에서 전 건 실패한다).
+			// Types v1 cannot build payloads for must be rejected at init,
+			// or every item would fail during migrate.
 			name: "미지원 타입(multi_select) 매핑 금지",
 			mapping: []MappingEntry{
 				{NotionProperty: "Tags", Frontmatter: "tags"},
@@ -168,13 +168,13 @@ func TestValidateMapping(t *testing.T) {
 	}
 }
 
-// TestValidateDateRules는 날짜 규칙 검증을 직접 검사한다. 규칙은 설정이 아니라
-// 코드(pipeline.go)에 있으므로(D10-변환 규칙의 위치) yaml 왕복 없이 검증만 본다.
+// TestValidateDateRules exercises date-rule validation directly (rules live
+// in code, not config, so no YAML round trip is needed).
 func TestValidateDateRules(t *testing.T) {
 	tests := []struct {
 		name    string
 		rules   []DateRule
-		wantErr string // 에러 메시지에 포함되어야 하는 문자열. 빈 값이면 성공 기대.
+		wantErr string // substring expected in the error; empty means success
 	}{
 		{
 			name: "fileLayout과 frontmatterKey 체인 정상",
@@ -195,8 +195,8 @@ func TestValidateDateRules(t *testing.T) {
 		},
 		{
 			name: "왕복 불가능한 레이아웃",
-			// "12"는 월(1)과 일(2)이 붙어 있어 포맷("12")을 되읽을 때
-			// 월이 12로 읽히고 일이 남지 않아 실패한다.
+			// "12" formats but cannot be parsed back: the month consumes
+			// both digits, leaving nothing for the day.
 			rules:   []DateRule{{FileLayout: "12"}},
 			wantErr: "유효한 시간 레이아웃이 아님",
 		},
@@ -230,7 +230,7 @@ func TestDecodeBaseKnownFields(t *testing.T) {
 	tests := []struct {
 		name    string
 		yaml    string
-		wantErr string // 에러 메시지에 포함되어야 하는 문자열. 빈 값이면 성공 기대.
+		wantErr string // substring expected in the error; empty means success
 	}{
 		{
 			name: "알려진 키만 있으면 통과",
@@ -247,8 +247,8 @@ func TestDecodeBaseKnownFields(t *testing.T) {
 			wantErr: "targett",
 		},
 		{
-			// 변환 규칙이 코드로 이동하면서(D10-변환 규칙의 위치) 설정의
-			// dateFrom/mapping 키는 미지 키로 거부된다 (낡은 설정 감지).
+			// Transform rules moved to code, so config-level dateFrom/mapping
+			// keys are rejected as unknown (detects stale configs).
 			name:    "코드로 이동한 dateFrom 키는 거부",
 			yaml:    "obsidian:\n  vault:\n    toNotion:\n      dateFrom:\n        - fileLayout: '060102'\n",
 			wantErr: "dateFrom",
@@ -279,8 +279,8 @@ func TestDecodeBaseKnownFields(t *testing.T) {
 	}
 }
 
-// TestDecodeBaseRealFile은 저장소의 실제 base.config.yaml이 엄격 파싱을
-// 통과하는지 확인한다. 경로 검증은 실볼트가 필요하므로 파싱 단계만 검사한다.
+// TestDecodeBaseRealFile checks that the repo's real base.config.yaml passes
+// strict parsing; path validation needs a real vault, so only parsing is tested.
 func TestDecodeBaseRealFile(t *testing.T) {
 	path := filepath.Join("..", "..", "base.config.yaml")
 	data, err := os.ReadFile(path)
@@ -291,15 +291,14 @@ func TestDecodeBaseRealFile(t *testing.T) {
 		t.Fatalf("실제 base.config.yaml 읽기 실패: %v", err)
 	}
 
-	// 사용자 설정은 수시로 바뀌므로 내용에 대한 단언은 하지 않는다.
-	// 엄격 파싱(미지 키 없음) 통과만 확인한다.
+	// User config changes often; assert only that strict parsing passes.
 	if _, err := decodeBase(data); err != nil {
 		t.Fatalf("실제 base.config.yaml 엄격 파싱 실패: %v", err)
 	}
 }
 
-// TestLatestRoundTripRules는 확장된 MappingEntry와 DateFrom이 latest 스냅샷에
-// 저장·복원되는지 검증한다.
+// TestLatestRoundTripRules verifies extended MappingEntry and DateFrom fields
+// survive a save/load round trip of the latest snapshot.
 func TestLatestRoundTripRules(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "latest.config.yaml")

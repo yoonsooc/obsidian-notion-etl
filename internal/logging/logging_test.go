@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// chdir는 테스트 동안 작업 디렉토리를 옮긴다 (Logger가 상대경로 logs/를 쓰므로).
+// chdir changes the working directory for the test (Logger uses relative logs/).
 func chdir(t *testing.T, dir string) {
 	t.Helper()
 	prev, err := os.Getwd()

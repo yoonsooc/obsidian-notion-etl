@@ -21,17 +21,16 @@ const (
 	configBackupDir  = "configs/backups"
 )
 
-// runInit은 PRD FR-1의 설정 부트스트랩을 수행한다.
-// base.config.yaml과 노션 DB 스키마를 검증하고 configs/latest.config.yaml을 생성한다.
-// 항목 단위 경고는 logs/migration/의 실행별 로그 파일에 남긴다 (PRD 6.2).
+// runInit validates base.config.yaml and the Notion DB schema, then writes
+// configs/latest.config.yaml. Per-item warnings go to a per-run log file.
 func runInit() (err error) {
 	logger, err := logging.New("migration", time.Now())
 	if err != nil {
 		return err
 	}
 	defer func() {
-		// 실패로 끝나도 경고가 기록됐다면 사용자가 로그를 찾을 수 있게 안내한다.
-		// 기록이 없으면 Close가 빈 로그 파일을 제거한다.
+		// Point the user at the log even on failure; Close removes the
+		// log file if nothing was written.
 		if err != nil && logger.Wrote() {
 			fmt.Fprintf(os.Stderr, "상세 로그: %s\n", logger.Path())
 		}
@@ -60,8 +59,8 @@ func runInit() (err error) {
 		return fmt.Errorf("노션 DB(%s) 조회 실패 (토큰 권한과 Integration 연결을 확인하세요): %w", base.Notion.DB.Name, err)
 	}
 
-	// API 2025-09-03부터 속성 스키마는 데이터 소스에 붙는다. 이 도구는 단일
-	// 데이터 소스 DB만 지원한다 (PRD 1.1 비목표: 데이터베이스 중첩/다중 소스).
+	// Since Notion API 2025-09-03 the property schema lives on the data
+	// source. Only single-data-source databases are supported.
 	if len(db.DataSources) == 0 {
 		return fmt.Errorf("노션 DB %q에 데이터 소스가 없음", db.Title)
 	}
@@ -84,9 +83,9 @@ func runInit() (err error) {
 		return fmt.Errorf("소스 디렉토리 스캔 실패: %w", err)
 	}
 
-	// init은 매핑 규칙의 작성자가 아니라 검증자다 (D5-설정 역할 분리).
-	// 코드에 정의된 규칙(pipeline.go)을 실제 노션 스키마·실제 노트와 대조하고,
-	// 통과한 규칙을 latest에 기록용 스냅샷으로 남긴다 (D10-변환 규칙의 위치).
+	// init is a validator, not the author, of the mapping rules: it checks
+	// the rules defined in pipeline.go against the live Notion schema and
+	// actual notes, and snapshots the passing rules into latest for record.
 	properties := toConfigProperties(ds.Properties)
 	mapping := platinumMapping()
 	dateRules := dailyDateRules()
@@ -135,10 +134,9 @@ func runInit() (err error) {
 	return nil
 }
 
-// warnMissingFrontmatterKeys는 매핑이 참조하는 frontmatter 키가 실제 노트들에서
-// 발견되지 않는 경우를 경고한다 (FR-1 5항: 규칙과 실데이터의 대조).
-// 실제 매핑 조회(PropertyMapper)는 정확 일치이므로 검증도 정확 일치가 기준이고,
-// 대소문자만 다른 키가 있으면 별도 경고로 구분해 안내한다.
+// warnMissingFrontmatterKeys warns when a mapping references a frontmatter key
+// not found in the scanned notes. Mapping lookup is exact-match, so a key that
+// differs only in case gets its own distinct warning.
 func warnMissingFrontmatterKeys(mapping []config.MappingEntry, keys []string, warn io.Writer) {
 	exact := make(map[string]struct{}, len(keys))
 	byFold := make(map[string]string, len(keys))
@@ -161,7 +159,7 @@ func warnMissingFrontmatterKeys(mapping []config.MappingEntry, keys []string, wa
 	}
 }
 
-// toConfigProperties는 노션 스키마 속성을 설정 파일 표현으로 변환한다.
+// toConfigProperties converts Notion schema properties to the config representation.
 func toConfigProperties(properties []notion.Property) []config.Property {
 	out := make([]config.Property, 0, len(properties))
 	for _, p := range properties {

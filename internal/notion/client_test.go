@@ -8,8 +8,7 @@ import (
 	"testing"
 )
 
-// newTestClient는 httptest 서버를 바라보는 클라이언트를 만든다.
-// baseURL은 export되지 않으므로 같은 패키지 테스트에서만 교체할 수 있다.
+// newTestClient returns a client pointed at an httptest server.
 func newTestClient(serverURL string) *Client {
 	c := NewClient("test-token")
 	c.baseURL = serverURL
@@ -119,7 +118,7 @@ func TestRetrieveDataSource(t *testing.T) {
 		t.Errorf("ds.Title = %q, want %q", ds.Title, want)
 	}
 
-	// Properties는 이름 기준 오름차순 정렬을 보장한다.
+	// Properties must be sorted by name.
 	wantProps := []Property{
 		{Name: "Date", Type: "date"},
 		{Name: "Name", Type: "title"},
@@ -180,7 +179,7 @@ func TestRetrieveDatabaseRetryExhausted(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "429") {
 		t.Errorf("error = %v, want message containing 429", err)
 	}
-	// 최초 1회 + 재시도 3회 = 총 4회 호출.
+	// 1 initial call + 3 retries = 4 calls.
 	if calls != 4 {
 		t.Errorf("server calls = %d, want 4", calls)
 	}

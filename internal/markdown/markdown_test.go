@@ -147,13 +147,13 @@ func TestToBlocks(t *testing.T) {
 	}
 }
 
-// styled는 서식 있는 rich text 원소를 만드는 테스트 헬퍼다.
+// styled builds a styled rich text element for tests.
 func styled(text string, ann notion.Annotations) notion.RichText {
 	return notion.RichText{Type: "text", Text: notion.Text{Content: text}, Annotations: &ann}
 }
 
-// wikiSpans는 위키링크 하나가 만드는 두 원소(밑줄 문서명 + 복사용 URI 텍스트)를
-// 만드는 테스트 헬퍼다 (인라인 obsidian:// 링크는 API가 거부해 텍스트로 병기).
+// wikiSpans builds the two elements a wikilink produces: the underlined page
+// name plus the URI as plain text (the API rejects inline obsidian:// links).
 func wikiSpans(label, uri string) []notion.RichText {
 	return []notion.RichText{
 		styled(label, notion.Annotations{Underline: true}),
@@ -252,7 +252,7 @@ func TestParseInline(t *testing.T) {
 			want: []notion.RichText{plain("[[미완성")},
 		},
 		{
-			// 닫히지 않은 [[가 다음 줄의 진짜 위키링크를 삼키면 안 된다.
+			// An unclosed [[ must not swallow a real wikilink on the next line.
 			name: "위키링크는 줄을 넘지 않음",
 			text: "가 [[미완성\n나 [[진짜]] 다",
 			want: append(append([]notion.RichText{plain("가 [[미완성\n나 ")},
@@ -260,7 +260,7 @@ func TestParseInline(t *testing.T) {
 				plain(" 다")),
 		},
 		{
-			// 닫는 **가 코드 스팬 안에 있으면 마커로 매칭하지 않는다.
+			// A closing ** inside a code span must not match as a marker.
 			name: "코드 스팬 안의 마커와 매칭 금지",
 			text: "a**b `c**d`",
 			want: []notion.RichText{
@@ -269,7 +269,7 @@ func TestParseInline(t *testing.T) {
 			},
 		},
 		{
-			// 공백 가드는 bold에도 적용된다 (원문에 없던 서식 방지).
+			// The whitespace guard also applies to bold markers.
 			name: "bold 공백 가드",
 			text: "2 ** 10은 1024, 2 ** 20은",
 			want: []notion.RichText{plain("2 ** 10은 1024, 2 ** 20은")},
@@ -296,7 +296,7 @@ func TestParseInline(t *testing.T) {
 	}
 }
 
-// TestToBlocksInline은 인라인 서식이 블록 변환과 통합되어 동작하는지 검증한다.
+// TestToBlocksInline verifies inline formatting works through block conversion.
 func TestToBlocksInline(t *testing.T) {
 	got := ToBlocks("- [ ] **중요** 할 일", "TestVault")
 	want := []notion.Block{
@@ -310,7 +310,7 @@ func TestToBlocksInline(t *testing.T) {
 	}
 }
 
-// plainSpans는 서식 없는 텍스트 여러 개로 rich_text 배열을 만드는 테스트 헬퍼다.
+// plainSpans builds a rich_text array from unstyled text pieces.
 func plainSpans(texts ...string) []notion.RichText {
 	spans := make([]notion.RichText, 0, len(texts))
 	for _, text := range texts {
@@ -326,8 +326,8 @@ func TestToBlocksChunking(t *testing.T) {
 		want []notion.Block
 	}{
 		{
-			// 2,000자 초과는 블록을 쪼개지 않고 한 블록 안에서 rich_text
-			// 원소만 분할한다 (노션에서 하나의 연속 문단으로 렌더링됨).
+			// Over 2,000 runes only the rich_text elements are split, not the
+			// block, so Notion renders one continuous paragraph.
 			name: "2000자 초과 문단은 한 블록 안에서 원소 분할(한글 rune 경계)",
 			body: strings.Repeat("가", 2500),
 			want: []notion.Block{
