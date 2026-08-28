@@ -81,7 +81,7 @@ func (c *Client) RetrieveDatabase(ctx context.Context, databaseID string) (*Data
 
 	refs := make([]DataSourceRef, 0, len(resp.DataSources))
 	for _, ds := range resp.DataSources {
-		refs = append(refs, DataSourceRef{ID: ds.ID, Name: ds.Name})
+		refs = append(refs, DataSourceRef(ds))
 	}
 
 	return &Database{

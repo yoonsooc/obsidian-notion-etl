@@ -1,6 +1,6 @@
 module github.com/yoonsooc/obsidian-notion-etl
 
-go 1.26.5
+go 1.27
 
 require (
 	golang.org/x/time v0.15.0

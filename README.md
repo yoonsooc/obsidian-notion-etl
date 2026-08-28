@@ -12,7 +12,7 @@
 
 ## 요구사항
 
-- Go 1.24+ (개발은 1.26 기준)
+- Go 1.27+ (구버전 툴체인은 `GOTOOLCHAIN=auto`인 경우 빌드 시 1.27을 자동 다운로드)
 - [Notion Integration](https://www.notion.so/my-integrations) 토큰, 그리고 대상 데이터베이스에 해당 Integration 연결(Connection)
 - Notion API 버전 `2026-03-11` 기준 (데이터베이스/데이터 소스 분리 구조). 단일 데이터 소스 DB만 지원
 
