@@ -1,16 +1,17 @@
 // Package pipeline is the single seam between the common transform machinery
 // and user-defined plugins. Plugins implement the Plugin interface and
-// register themselves at init time; common code selects one through Lookup
+// register themselves at init time; common code selects one through Select
 // (by the name in base.config.yaml) and assembles the chain with BuildChain,
 // so nothing outside main's blank import depends on a plugin package.
+//
+// File layout: pipeline.go holds the contract and plugin selection,
+// default.go the built-in config-driven plugin, chain.go the chain assembly.
 package pipeline
 
 import (
 	"fmt"
 	"sort"
 	"strings"
-
-	"golang.org/x/text/unicode/norm"
 
 	"github.com/yoonsooc/obsidian-notion-etl/internal/config"
 	"github.com/yoonsooc/obsidian-notion-etl/internal/transform"
@@ -94,49 +95,6 @@ func lookup(name string) (Plugin, error) {
 	return p, nil
 }
 
-// defaultPlugin is the built-in plugin used when no user plugin is selected.
-// Rules come from base.config.yaml's pipeline section, so they are editable
-// without writing Go code; absent rules fall back to generic Obsidian
-// conventions so the tool functions with zero plugin code.
-type defaultPlugin struct {
-	dateFrom []config.DateRule
-	mapping  []config.MappingEntry
-}
-
-func (defaultPlugin) Name() string { return DefaultName }
-
-func (d defaultPlugin) DateRules() []config.DateRule {
-	if len(d.dateFrom) > 0 {
-		return d.dateFrom
-	}
-	return []config.DateRule{
-		{FileLayout: "2006-01-02"}, // Obsidian's default daily-note filename
-		{FrontmatterKey: "date"},
-		{FrontmatterKey: "created"},
-	}
-}
-
-// Mapping may be empty: title/date/url are derived by built-in stages.
-func (d defaultPlugin) Mapping() []config.MappingEntry { return d.mapping }
-
-func (defaultPlugin) Transformers() []transform.Transformer {
-	return []transform.Transformer{NFCTitle()}
-}
-
-// NFCTitle returns a transformer that normalizes the title to NFC. macOS
-// stores filenames in NFD, so a title left in NFD (e.g. Korean filenames)
-// would make the title-equality duplicate check miss on re-runs.
-func NFCTitle() transform.Transformer { return nfcTitle{} }
-
-type nfcTitle struct{}
-
-func (nfcTitle) Name() string { return "nfcTitle" }
-
-func (nfcTitle) Transform(_ transform.Note, draft *transform.PageDraft) error {
-	draft.Title = norm.NFC.String(draft.Title)
-	return nil
-}
-
 func registeredNames() string {
 	names := make([]string, 0, len(registry))
 	for name := range registry {
@@ -144,64 +102,4 @@ func registeredNames() string {
 	}
 	sort.Strings(names)
 	return "[" + strings.Join(names, ", ") + "]"
-}
-
-// BuildChain assembles the migration transform chain: built-in stages around
-// the plugin's rules and custom transformers.
-func BuildChain(p Plugin, vaultName, target string, properties []config.Property) []transform.Transformer {
-	chain := []transform.Transformer{
-		transform.NewDateDeriver(dateRules(p.DateRules())),
-		transform.NewTitleFromFilename(),
-	}
-	chain = append(chain, p.Transformers()...)
-	return append(chain,
-		transform.NewObsidianURI(vaultName, target),
-		transform.NewPropertyMapper(mappingRules(p.Mapping(), properties)),
-	)
-}
-
-// dateRules converts rule definitions to the pipeline type.
-func dateRules(rules []config.DateRule) []transform.DateRule {
-	out := make([]transform.DateRule, 0, len(rules))
-	for _, r := range rules {
-		out = append(out, transform.DateRule{FileLayout: r.FileLayout, FrontmatterKey: r.FrontmatterKey})
-	}
-	return out
-}
-
-// mappingRules converts validated mapping entries to the pipeline type,
-// enforcing ValidateMapping's "duplicate entries are ignored" rule.
-// Property names resolve in the same order as ValidateMapping: exact match
-// first, then case-insensitive match to the schema's actual name, so schemas
-// with case-only property variants do not get misrouted.
-func mappingRules(entries []config.MappingEntry, properties []config.Property) []transform.MappingRule {
-	exact := make(map[string]struct{}, len(properties))
-	actualByFold := make(map[string]string, len(properties))
-	for _, p := range properties {
-		exact[p.Name] = struct{}{}
-		actualByFold[strings.ToLower(p.Name)] = p.Name
-	}
-
-	seen := make(map[string]struct{}, len(entries))
-	rules := make([]transform.MappingRule, 0, len(entries))
-	for _, e := range entries {
-		name := e.NotionProperty
-		if _, ok := exact[name]; !ok {
-			if actual, ok := actualByFold[strings.ToLower(name)]; ok {
-				name = actual
-			}
-		}
-		if _, dup := seen[name]; dup {
-			continue
-		}
-		seen[name] = struct{}{}
-		rules = append(rules, transform.MappingRule{
-			Frontmatter:    e.Frontmatter,
-			NotionProperty: name,
-			Value:          e.Value,
-			Values:         e.Values,
-			Default:        e.Default,
-		})
-	}
-	return rules
 }

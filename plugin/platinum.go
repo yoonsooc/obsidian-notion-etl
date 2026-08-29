@@ -14,6 +14,8 @@ func init() { pipeline.Register(platinum{}) }
 
 type platinum struct{}
 
+var _ pipeline.Plugin = platinum{}
+
 func (platinum) Name() string { return "platinum" }
 
 // DateRules is the date derivation chain for daily notes.
