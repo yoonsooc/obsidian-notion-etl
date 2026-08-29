@@ -6,6 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+
+	// The only reference to user-defined plugins: importing the package runs
+	// each plugin's init, which registers it into the pipeline registry.
+	// Common code (init/migrate) reaches plugins solely via pipeline.Lookup.
+	_ "github.com/yoonsooc/obsidian-notion-etl/plugin"
 )
 
 func main() {

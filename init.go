@@ -11,6 +11,7 @@ import (
 	"github.com/yoonsooc/obsidian-notion-etl/internal/config"
 	"github.com/yoonsooc/obsidian-notion-etl/internal/logging"
 	"github.com/yoonsooc/obsidian-notion-etl/internal/notion"
+	"github.com/yoonsooc/obsidian-notion-etl/internal/pipeline"
 	"github.com/yoonsooc/obsidian-notion-etl/internal/vault"
 )
 
@@ -84,20 +85,24 @@ func runInit() (err error) {
 	}
 
 	// init is a validator, not the author, of the mapping rules: it checks
-	// the rules defined in pipeline.go against the live Notion schema and
-	// actual notes, and snapshots the passing rules into latest for record.
+	// the rules declared by the selected plugin against the live Notion schema
+	// and actual notes, and snapshots the passing rules into latest for record.
+	plug, err := pipeline.Select(base.Pipeline)
+	if err != nil {
+		return err
+	}
 	properties := toConfigProperties(ds.Properties)
-	mapping := platinumMapping()
-	dateRules := dailyDateRules()
+	mapping := plug.Mapping()
+	dateRules := plug.DateRules()
 	warnings, err := config.ValidateMapping(mapping, properties)
 	if err != nil {
-		return fmt.Errorf("mapping 규칙(pipeline.go) 검증 실패: %w", err)
+		return fmt.Errorf("mapping 규칙(플러그인 %s) 검증 실패: %w", plug.Name(), err)
 	}
 	for _, w := range warnings {
 		logger.Warnf("%s", w)
 	}
-	if err := config.ValidateDateRules("pipeline.dailyDateRules", dateRules); err != nil {
-		return fmt.Errorf("날짜 규칙(pipeline.go) 검증 실패: %w", err)
+	if err := config.ValidateDateRules("plugin."+plug.Name()+".dateRules", dateRules); err != nil {
+		return fmt.Errorf("날짜 규칙(플러그인 %s) 검증 실패: %w", plug.Name(), err)
 	}
 	warnMissingFrontmatterKeys(mapping, keys, logger)
 
@@ -106,6 +111,7 @@ func runInit() (err error) {
 	latest.Notion.DatabaseID = db.ID
 	latest.Notion.DataSourceID = ds.ID
 	latest.Notion.Properties = properties
+	latest.Plugin = plug.Name()
 	latest.Mapping = mapping
 	latest.DateFrom = dateRules
 

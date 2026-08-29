@@ -12,6 +12,7 @@ import (
 	"github.com/yoonsooc/obsidian-notion-etl/internal/logging"
 	"github.com/yoonsooc/obsidian-notion-etl/internal/markdown"
 	"github.com/yoonsooc/obsidian-notion-etl/internal/notion"
+	"github.com/yoonsooc/obsidian-notion-etl/internal/pipeline"
 	"github.com/yoonsooc/obsidian-notion-etl/internal/transform"
 	"github.com/yoonsooc/obsidian-notion-etl/internal/vault"
 )
@@ -211,9 +212,13 @@ func newMigrateEnv(token string, base *config.BaseConfig, latest *config.LatestC
 		env.effectiveDate = effective
 	}
 
-	// Transform rules live in code (pipeline.go); the latest snapshot is for record only.
+	// Transform rules live in the selected plugin; the latest snapshot is for record only.
+	plug, err := pipeline.Select(base.Pipeline)
+	if err != nil {
+		return nil, err
+	}
 	env.vaultName = toNotion.Name
-	env.chain = buildPipeline(toNotion.Name, toNotion.Target, latest.Notion.Properties)
+	env.chain = pipeline.BuildChain(plug, toNotion.Name, toNotion.Target, latest.Notion.Properties)
 	return env, nil
 }
 

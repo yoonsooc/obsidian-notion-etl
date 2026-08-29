@@ -39,6 +39,21 @@ type BaseConfig struct {
 			Name string `yaml:"name"`
 		} `yaml:"db"`
 	} `yaml:"notion"`
+	Pipeline PipelineConfig `yaml:"pipeline,omitempty"`
+}
+
+// PipelineConfig selects the transform plugin and, for the built-in default
+// plugin, optionally supplies its rules so they can be edited without code.
+type PipelineConfig struct {
+	// Plugin selects the transform plugin by name. "default" selects the
+	// built-in config-driven plugin; empty selects the sole registered
+	// plugin, or the default one when no plugin is registered.
+	Plugin string `yaml:"plugin,omitempty"`
+	// DateFrom and Mapping feed the default plugin only; user plugins define
+	// their rules in code and reject these fields. When absent, the default
+	// plugin falls back to generic Obsidian conventions.
+	DateFrom []DateRule     `yaml:"dateFrom,omitempty"`
+	Mapping  []MappingEntry `yaml:"mapping,omitempty"`
 }
 
 // LoadBase reads and validates base.config.yaml. Required fields must be

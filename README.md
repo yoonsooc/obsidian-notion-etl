@@ -13,10 +13,12 @@
 ## 요구사항
 
 - Go 1.27+ (구버전 툴체인은 `GOTOOLCHAIN=auto`인 경우 빌드 시 1.27을 자동 다운로드)
-- [Notion Integration](https://www.notion.so/my-integrations) 토큰, 그리고 대상 데이터베이스에 해당 Integration 연결(Connection)
-- Notion API 버전 `2026-03-11` 기준 (데이터베이스/데이터 소스 분리 구조). 단일 데이터 소스 DB만 지원
+- [Notion 개발자 토큰](https://www.notion.so/developers/tokens), 그리고 대상 데이터베이스에 연결(Connection)
+- Notion API version [`2026-03-11`](https://developers.notion.com/guides/get-started/upgrade-guide-2026-03-11) 기준
+  - 데이터베이스/데이터 소스 분리 구조
+  - 단일 데이터 소스 DB만 지원
 
-## 설치와 빌드
+## 설치와  빌드
 
 ```bash
 go build -o etl-worker .
@@ -34,7 +36,7 @@ NOTION_TOKEN=secret_xxx
 
 ### 2. `base.config.yaml` — 환경 정보
 
-`base.config.example.yaml`을 복사해 작성합니다. **환경 정보만** 담습니다(변환 규칙은 코드에 있습니다. 아래 참조).
+`base.config.example.yaml`을 복사해 작성합니다. **환경 정보만** 담습니다(파일 변환 규칙은 코드로 다룹니다. 아래 참조).
 
 ```yaml
 obsidian:
@@ -58,36 +60,40 @@ notion:
 ```
 
 `exclude` 매칭 규칙:
-- 패턴은 target 기준 상대경로, 파일명, 그리고 **조상 디렉토리 경로**에 적용됩니다. `templates` 하나로 `templates/2025/note.md`까지 제외됩니다 (gitignore와 유사).
+- 패턴은 target 기준 상대경로, 파일명, 그리고 **Root 디렉토리 경로**에 적용됩니다. `templates` 하나로 `templates/2025/note.md`까지 제외됩니다 (gitignore와 유사).
 - macOS의 한글 파일명(NFD)과 설정의 NFC 표기는 자동으로 정규화되어 매칭됩니다.
-- 설정 파싱은 엄격 모드라서 오타 키는 로드 시점에 에러로 잡힙니다.
+- 설정 파싱은 strict 모드라서 키의 오타는 로드 시점에 에러로 잡힙니다.
 
-### 3. 변환 규칙 — `pipeline.go` (코드)
+### 3. 변환 규칙 — `plugin/` (코드)
 
-날짜 파생과 속성 매핑 규칙은 설정 파일이 아니라 **코드**에 있습니다. 설정이 길어지는 것을 피하고, 규칙을 타입 검사와 테스트 아래에 두기 위한 선택입니다. 규칙 변경은 `pipeline.go` 수정 후 리빌드로 이뤄지며, `init`이 실행 시점에 실제 노션 스키마·노트와 대조해 검증합니다.
+날짜 파생과 속성 매핑 규칙은 설정 파일이 아니라 **코드**에 있습니다. 
+설정이 길어지는 것을 피하고, 규칙을 타입 검사와 테스트 아래에 두기 위한 선택입니다.
+
+사용자 정의 변환 정책은 `pipeline.Plugin` 인터페이스를 구현한 **플러그인**으로 작성합니다 (예: [plugin/platinum.go](plugin/platinum.go)).
+플러그인은 `init()`에서 스스로 레지스트리에 등록되고, `base.config.yaml`의 `pipeline.plugin` 키로 사용할 플러그인을 선택합니다 (Quartz의 플러그인 설정과 유사한 방식이며, 하나만 등록된 경우 생략 가능).
+
+플러그인 코드를 작성하지 않아도 내장 **`default` 플러그인**으로 동작합니다. `pipeline.plugin: 'default'`(또는 등록된 플러그인이 없을 때 생략)를 지정하면, `base.config.yaml`의 `pipeline.dateFrom`/`pipeline.mapping`에 yaml로 정의한 규칙을 사용합니다. 규칙을 생략하면 일반 관례(파일명 `YYYY-MM-DD` → frontmatter `date` → `created`, 매핑 없음)로 폴백하며, 규칙 형식은 `base.config.example.yaml`의 주석을 참고하세요. 이 yaml 규칙은 default 플러그인 전용이라서 사용자 플러그인과 함께 지정하면 에러가 됩니다.
+공통부 코드는 플러그인 패키지에 의존하지 않으며, 접합부는 `internal/pipeline`의 레지스트리와 체인 조립기 한 곳입니다.
+규칙 변경은 플러그인 파일 수정 후 리빌드로 이뤄지며, `init`이 실행 시점에 실제 노션 스키마 vs 옵시디언 노트와 대조해 검증합니다.
 
 ```go
-// 날짜 파생 체인: 위에서부터 시도, 처음 성공한 값 사용
-func dailyDateRules() []config.DateRule {
-    return []config.DateRule{
-        {FileLayout: "DN_060102"},        // 파일명 DN_251101.md -> 2025-11-01
-        {FileLayout: "060102"},           // 파일명 251101.md
-        {FrontmatterKey: "created_date"}, // frontmatter 폴백
-    }
+// pipeline.Plugin 인터페이스: 모든 메서드는 선언적(데이터 반환)이며 실패하지 않음
+type Plugin interface {
+    Name() string                        // base.config.yaml의 pipeline.plugin으로 선택되는 이름
+    DateRules() []config.DateRule        // 날짜 파생 체인: 위에서부터 시도, 처음 성공한 값 사용
+    Mapping() []config.MappingEntry      // 속성 매핑: value는 고정값 주입, Frontmatter+Values는 키 매핑과 값 변환
+    Transformers() []transform.Transformer // 커스텀 변환 단계 (예: 제목 NFC 정규화)
 }
 
-// 속성 매핑: value는 고정값 주입, Frontmatter+Values는 키 매핑과 값 변환
-func platinumMapping() []config.MappingEntry {
-    return []config.MappingEntry{
-        {NotionProperty: "Type", Value: "Todo"},
-        {NotionProperty: "Status", Value: "Done"},
-    }
-}
+// 플러그인 등록: 파일 하나가 정책 하나, init에서 자가 등록
+func init() { pipeline.Register(platinum{}) }
 ```
 
 - `FileLayout`은 Go 시간 레이아웃 문법입니다 (`06`=년, `01`=월, `02`=일, 그 외 문자는 리터럴).
 - 매핑 가능한 노션 속성 타입: `select`, `status`, `rich_text`. title/date/url 타입은 파이프라인이 파일명에서 자동 파생하므로 매핑할 수 없습니다.
-- 설정으로 표현할 수 없는 커스텀 변환은 `transform.Transformer` 인터페이스를 구현해 `buildPipeline`의 체인에 추가합니다 (예: 제목 NFC 정규화 단계).
+- 설정으로 표현할 수 없는 커스텀 변환은 `transform.Transformer` 인터페이스를 구현해 플러그인의 `Transformers()`로 반환합니다. 반환된 단계는 제목 파생 이후, URI/속성 매핑 이전에 체인에 삽입됩니다.
+- 플러그인의 규칙 오류는 접합부로 전파되지 않습니다. 규칙 데이터는 `init` 검증에서, 노트 단위 변환 에러는 `transform.Run`에서 격리(로그 후 해당 노트 스킵)됩니다.
+
 
 ## 사용법
 
@@ -97,7 +103,7 @@ func platinumMapping() []config.MappingEntry {
 ./etl-worker init
 ```
 
-- 볼트 경로/디렉토리, 노션 DB 접근(토큰·연결), 데이터 소스 단일성, 코드에 정의된 변환 규칙을 실제 스키마·노트와 대조해 검증합니다.
+- 볼트 경로/디렉토리, 노션 DB 접근(토큰), 데이터 소스 단일성, 코드에 정의된 변환 규칙을 실제 스키마와 노트를 대조해 검증합니다.
 - 결과를 `configs/latest.config.yaml`에 스냅샷으로 저장합니다. 이 파일은 수동 편집 대상이 아니며, 내용이 바뀌면 이전본이 `configs/backups/`에 자동 아카이빙됩니다.
 
 ### 2. `migrate` — Obsidian → Notion 이관
@@ -120,17 +126,17 @@ func platinumMapping() []config.MappingEntry {
 
 ## 본문 변환 규칙 (migrate)
 
-블록 (줄 단위):
+### Block (줄 단위)
 
 | 마크다운 | 노션 블록 |
 |----------|-----------|
-| `# ` / `## ` / `### ` | heading_1/2/3 (h4 이상은 h3 폴백) |
+| `# ` / `## ` / `### ` | heading_1/2/3 (h4 이상은 h3 Fallback) |
 | `- [ ] ` / `- [x] ` | to_do (체크 상태 유지, 빈 체크박스 줄도 유지) |
 | `- ` / `* ` | bulleted_list_item (중첩은 평탄화) |
 | 그 외 연속 줄 | 빈 줄 경계로 묶인 paragraph |
 | `---` 수평선 | 생략 (문단 경계로만 작동) |
 
-인라인:
+### Inline
 
 | 마크다운 | 노션 |
 |----------|------|
@@ -151,13 +157,14 @@ func platinumMapping() []config.MappingEntry {
 ## 프로젝트 구조
 
 ```
-main.go / init.go / migrate.go   # CLI 서브커맨드
-pipeline.go                      # 변환 정책 (날짜 파생, 매핑, 커스텀 Transformer)
+main.go / init.go / migrate.go   # CLI 서브커맨드 (main이 plugin 패키지를 blank import로 등록)
+plugin/                          # 사용자 정의 플러그인 (platinum.go 등, pipeline.Plugin 구현체)
 internal/
   config/     # 설정 로드·검증·원자적 저장·아카이빙, .env
   notion/     # API 클라이언트 (Limiter, 429 재시도, 블록/페이지)
   vault/      # 볼트 재귀 스캔, exclude 매칭, frontmatter 파싱
   transform/  # Transformer 파이프라인과 내장 변환 단계
+  pipeline/   # 플러그인 접합부: Plugin 인터페이스, 레지스트리, 체인 조립
   markdown/   # 마크다운 -> 노션 블록 (블록/인라인/청킹)
   logging/    # 실행별 로그 파일 (빈 로그 자동 정리)
 ```

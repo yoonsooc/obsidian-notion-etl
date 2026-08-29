@@ -35,6 +35,7 @@ type LatestConfig struct {
 		DataSourceID string     `yaml:"dataSourceId"`
 		Properties   []Property `yaml:"properties"`
 	} `yaml:"notion"`
+	Plugin   string         `yaml:"plugin,omitempty"` // transform plugin that produced this snapshot
 	Mapping  []MappingEntry `yaml:"mapping"`
 	DateFrom []DateRule     `yaml:"dateFrom,omitempty"`
 	State    State          `yaml:"state"`

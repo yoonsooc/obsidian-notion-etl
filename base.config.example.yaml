@@ -18,3 +18,17 @@ notion:
   db:
     url: 'https://www.notion.so/<32자리ID>?v=...'  # 대상 데이터베이스 URL (ID는 자동 추출)
     name: 'MyDatabase'
+pipeline:
+  plugin: 'MyPlugin'                             # 사용할 변환 플러그인. 생략 시: 등록된 플러그인이 하나면 그것, 없으면 내장 'default'
+  # 아래 규칙들은 내장 'default' 플러그인 전용입니다 (코드 수정 없이 yaml로 규칙 정의).
+  # 생략하면 일반 관례로 폴백: 파일명 'YYYY-MM-DD' -> frontmatter 'date' -> 'created', 매핑 없음.
+  # dateFrom:                                    # 날짜 파생 체인 (위에서부터 시도)
+  #   - fileLayout: 'DN_060102'                  # 파일명을 Go 시간 레이아웃으로 해석
+  #   - frontmatterKey: 'created_date'           # frontmatter 값에서 날짜 파싱
+  # mapping:                                     # 노션 속성 매핑
+  #   - notionProperty: 'Type'
+  #     value: 'Todo'                            # 고정값 주입
+  #   - notionProperty: 'Status'
+  #     frontmatter: 'status'                    # frontmatter 키 매핑
+  #     values: { 'wip': 'In progress' }         # 값 변환표 (선택)
+  #     default: 'Done'                          # 폴백 값 (선택)
