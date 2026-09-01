@@ -1,6 +1,9 @@
 package notion
 
-// Block is a Notion block payload for create/append; only the field matching Type is set.
+import "encoding/json"
+
+// Block is a Notion block payload for create/append and the decoded form of a
+// read response; only the field matching Type is set.
 type Block struct {
 	Object           string         `json:"object"`
 	Type             string         `json:"type"`
@@ -10,6 +13,61 @@ type Block struct {
 	Heading3         *RichTextBlock `json:"heading_3,omitempty"`
 	BulletedListItem *RichTextBlock `json:"bulleted_list_item,omitempty"`
 	ToDo             *ToDoBlock     `json:"to_do,omitempty"`
+	// HasChildren is set on read responses; nested children are not collected (v1).
+	HasChildren bool `json:"has_children,omitempty"`
+	// Fallback holds the rich_text of an unsupported block type extracted at
+	// decode time, so reverse conversion can still render its text.
+	Fallback []RichText `json:"-"`
+}
+
+// blockAlias breaks UnmarshalJSON recursion.
+type blockAlias Block
+
+// UnmarshalJSON decodes a block; when the type has no typed field above
+// (quote, numbered_list_item, code, ...), it extracts the body's rich_text
+// into Fallback for the plain-text paragraph fallback on reverse conversion.
+func (b *Block) UnmarshalJSON(data []byte) error {
+	var alias blockAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+	*b = Block(alias)
+	if b.Paragraph != nil || b.Heading1 != nil || b.Heading2 != nil ||
+		b.Heading3 != nil || b.BulletedListItem != nil || b.ToDo != nil || b.Type == "" {
+		return nil
+	}
+
+	var bodies map[string]json.RawMessage
+	if err := json.Unmarshal(data, &bodies); err != nil {
+		return err
+	}
+	body, ok := bodies[b.Type]
+	if !ok {
+		return nil
+	}
+	// A body without a rich_text array (divider, image, ...) just leaves
+	// Fallback empty; the caller decides to skip it.
+	var rtb RichTextBlock
+	if err := json.Unmarshal(body, &rtb); err != nil {
+		return nil
+	}
+	b.Fallback = rtb.RichText
+	return nil
+}
+
+// JoinPlainText concatenates the readable text of a rich text array. Read
+// responses set PlainText for every element type (text, mention, equation);
+// Text.Content is the fallback for locally built values.
+func JoinPlainText(rts []RichText) string {
+	var sb []byte
+	for _, rt := range rts {
+		if rt.PlainText != "" {
+			sb = append(sb, rt.PlainText...)
+			continue
+		}
+		sb = append(sb, rt.Text.Content...)
+	}
+	return string(sb)
 }
 
 // RichTextBlock is a block body holding only a rich_text array (paragraph, heading, etc.).
@@ -24,11 +82,12 @@ type ToDoBlock struct {
 }
 
 // RichText is an element of a rich text array; Annotations is set only when
-// inline formatting is present.
+// inline formatting is present. PlainText is populated by read responses only.
 type RichText struct {
 	Type        string       `json:"type"`
 	Text        Text         `json:"text"`
 	Annotations *Annotations `json:"annotations,omitempty"`
+	PlainText   string       `json:"plain_text,omitempty"`
 }
 
 // Annotations is inline formatting for a rich text element.
