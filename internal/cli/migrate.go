@@ -254,18 +254,16 @@ func (env *migrateEnv) processNote(ctx context.Context, note vault.Note) string 
 		}
 	}
 
-	// Duplicate check: by date when available, otherwise by title. Claim the
-	// key within this run first to block the check-then-create race between
-	// workers, then query Notion.
+	// Duplicate check by title (D14). Titles (the filename stem) stay unique
+	// across note types, while dates collide once weekly/monthly notes derive
+	// start dates that land on daily dates. Claim the key within this run
+	// first to block the check-then-create race between workers, then query.
 	dupKey := "title:" + draft.Title
-	if draft.Date != "" && env.dateProp != "" {
-		dupKey = "date:" + draft.Date
-	}
 	if !env.claim(dupKey) {
 		env.logger.Infof("중복 스킵 %s: 이번 실행의 다른 노트와 %s 겹침", note.RelPath, dupKey)
 		return "skippedDup"
 	}
-	exists, err := env.checkDuplicate(ctx, draft)
+	exists, err := env.client.ExistsByTitle(ctx, env.dataSourceID, env.titleProp, draft.Title)
 	if err != nil {
 		env.logger.Warnf("중복 검사 실패 %s: %v", note.RelPath, err)
 		return "failed"
@@ -293,14 +291,6 @@ func (env *migrateEnv) processNote(ctx context.Context, note vault.Note) string 
 	}
 	env.logger.Infof("이관 완료 %s -> %s", note.RelPath, pageID)
 	return "migrated"
-}
-
-// checkDuplicate queries Notion for an existing page matching the draft.
-func (env *migrateEnv) checkDuplicate(ctx context.Context, draft *transform.PageDraft) (bool, error) {
-	if draft.Date != "" && env.dateProp != "" {
-		return env.client.ExistsByDate(ctx, env.dataSourceID, env.dateProp, draft.Date)
-	}
-	return env.client.ExistsByTitle(ctx, env.dataSourceID, env.titleProp, draft.Title)
 }
 
 // buildProperties converts a draft into the Notion property payload.

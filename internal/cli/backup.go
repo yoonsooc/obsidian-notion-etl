@@ -148,18 +148,19 @@ func buildNoteDraft(ctx context.Context, client *notion.Client, page notion.Page
 	}, nil
 }
 
-// backupFileName derives a note file name: the Date property as YYYY-MM-DD,
-// else the sanitized title, else the page ID. In-run collisions get -2, -3, ...
-// suffixes (PRD 9.2); collisions with earlier runs are plain overwrites by design.
+// backupFileName derives a note file name from the sanitized page title: the
+// title is the note's identity in both directions (migrate keeps the filename
+// stem as the title, D14 keys duplicates on it), so title naming restores the
+// original Obsidian names and keeps same-date notes (daily vs weekly start)
+// from colliding. Fallbacks: the Date property as YYYY-MM-DD, then the page
+// ID. In-run collisions get -2, -3, ... suffixes (PRD 9.2); collisions with
+// earlier runs are plain overwrites by design.
 func backupFileName(page notion.Page, used map[string]int) string {
-	name := ""
-	if len(page.Date) >= 10 {
+	name := vault.SanitizeFileName(page.Title)
+	if name == "" && len(page.Date) >= 10 {
 		if _, err := time.Parse("2006-01-02", page.Date[:10]); err == nil {
 			name = page.Date[:10]
 		}
-	}
-	if name == "" {
-		name = vault.SanitizeFileName(page.Title)
 	}
 	if name == "" {
 		name = page.ID

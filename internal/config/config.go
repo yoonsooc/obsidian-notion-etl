@@ -155,6 +155,14 @@ func (c *BaseConfig) validate() error {
 		return fmt.Errorf("toNotion 소스 경로가 디렉토리가 아님: %s", srcDir)
 	}
 
+	// D3 demands full separation, and equality alone is not enough: a backup
+	// dir nested inside the source gets scanned by migrate, so its notes
+	// re-migrate as duplicates and the next backup multiplies them. Checked
+	// before MkdirAll so a bad config does not leave a directory behind.
+	if isWithin(backupDir, srcInfo) {
+		return fmt.Errorf("fromNotion 백업 경로가 toNotion 소스 디렉토리 내부에 있음(백업본 재이관 루프 방지): %s 는 %s 하위", backupDir, srcDir)
+	}
+
 	if err := os.MkdirAll(backupDir, 0o755); err != nil {
 		return fmt.Errorf("fromNotion 백업 디렉토리 생성 실패: %w", err)
 	}
@@ -169,5 +177,28 @@ func (c *BaseConfig) validate() error {
 	if os.SameFile(srcInfo, backupInfo) {
 		return fmt.Errorf("toNotion 소스 경로와 fromNotion 백업 경로가 같은 디렉토리를 가리킴(루프 방지): %s", srcDir)
 	}
+	// The reverse nesting: the backup dir is mirror territory (unconditional
+	// overwrites), so the source living inside it is almost certainly a
+	// config mistake.
+	if isWithin(srcDir, backupInfo) {
+		return fmt.Errorf("toNotion 소스 경로가 fromNotion 백업 디렉토리 내부에 있음(미러 덮어쓰기 위험): %s 는 %s 하위", srcDir, backupDir)
+	}
 	return nil
+}
+
+// isWithin reports whether dir or any of its ancestors is the same physical
+// directory as root. Ancestors are compared with os.SameFile, so
+// case-insensitive paths, NFC/NFD variants, and symlink aliases all match;
+// an unstattable ancestor is skipped (it cannot be the existing root).
+func isWithin(dir string, root os.FileInfo) bool {
+	for p := filepath.Clean(dir); ; {
+		if info, err := os.Stat(p); err == nil && os.SameFile(info, root) {
+			return true
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return false
+		}
+		p = parent
+	}
 }

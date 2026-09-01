@@ -117,6 +117,21 @@ func TestLoadBase(t *testing.T) {
 			wantErr: "루프 방지",
 		},
 		{
+			name: "백업 디렉토리가 소스 내부",
+			mutate: func(cfg *BaseConfig) {
+				cfg.Obsidian.Vault.FromNotion.Target = cfg.Obsidian.Vault.ToNotion.Target + "/NotionBackup"
+			},
+			wantErr: "재이관 루프",
+		},
+		{
+			name: "소스 디렉토리가 백업 내부",
+			mutate: func(cfg *BaseConfig) {
+				// Backup at the vault root contains the source subdirectory.
+				cfg.Obsidian.Vault.FromNotion.Target = "."
+			},
+			wantErr: "미러 덮어쓰기",
+		},
+		{
 			name: "소스 디렉토리 없음",
 			mutate: func(cfg *BaseConfig) {
 				cfg.Obsidian.Vault.ToNotion.Target = "no-such-dir"

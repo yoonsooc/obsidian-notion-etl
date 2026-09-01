@@ -27,54 +27,6 @@ func assertJSONEq(t *testing.T, got []byte, want string) {
 	}
 }
 
-func TestExistsByDate(t *testing.T) {
-	tests := []struct {
-		name     string
-		response string
-		want     bool
-	}{
-		{name: "페이지 존재", response: `{"results":[{"id":"p1"}]}`, want: true},
-		{name: "페이지 부재", response: `{"results":[]}`, want: false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var gotMethod, gotPath string
-			var gotBody []byte
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				gotMethod = r.Method
-				gotPath = r.URL.Path
-				var err error
-				gotBody, err = io.ReadAll(r.Body)
-				if err != nil {
-					t.Errorf("read request body: %v", err)
-				}
-				w.Header().Set("Content-Type", "application/json")
-				if _, err := w.Write([]byte(tt.response)); err != nil {
-					t.Errorf("write response: %v", err)
-				}
-			}))
-			defer server.Close()
-
-			c := newTestClient(server.URL)
-			got, err := c.ExistsByDate(context.Background(), "ds-1", "Date", "2026-01-02")
-			if err != nil {
-				t.Fatalf("ExistsByDate() error = %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("ExistsByDate() = %v, want %v", got, tt.want)
-			}
-			if gotMethod != http.MethodPost {
-				t.Errorf("request method = %q, want POST", gotMethod)
-			}
-			if want := "/v1/data_sources/ds-1/query"; gotPath != want {
-				t.Errorf("request path = %q, want %q", gotPath, want)
-			}
-			assertJSONEq(t, gotBody, `{"filter":{"property":"Date","date":{"equals":"2026-01-02"}},"page_size":1}`)
-		})
-	}
-}
-
 func TestExistsByTitle(t *testing.T) {
 	tests := []struct {
 		name     string

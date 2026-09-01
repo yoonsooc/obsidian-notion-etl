@@ -67,10 +67,9 @@ type equalsCondition struct {
 	Equals string `json:"equals"`
 }
 
-// queryFilter is a data source query filter; exactly one of Date or Title is set.
+// queryFilter is a data source query filter on a title property.
 type queryFilter struct {
 	Property string           `json:"property"`
-	Date     *equalsCondition `json:"date,omitempty"`
 	Title    *equalsCondition `json:"title,omitempty"`
 }
 
@@ -104,14 +103,6 @@ type createPageResponse struct {
 
 type appendBlocksRequest struct {
 	Children []Block `json:"children"`
-}
-
-// ExistsByDate reports whether a page exists with the given date property value.
-func (c *Client) ExistsByDate(ctx context.Context, dataSourceID, propertyName, dateISO string) (bool, error) {
-	return c.queryExists(ctx, dataSourceID, queryFilter{
-		Property: propertyName,
-		Date:     &equalsCondition{Equals: dateISO},
-	})
 }
 
 // ExistsByTitle reports whether a page exists with the given title property value.

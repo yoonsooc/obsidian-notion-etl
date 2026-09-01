@@ -8,7 +8,7 @@
 |------|------|------|------|
 | `init` | - | 설정·스키마 검증 및 스냅샷 생성 | 완료 |
 | `migrate` | Obsidian → Notion | 과거 노트 일괄 이관 (수동, 멱등) | 완료 |
-| `backup` | Notion → Obsidian | 노션 문서의 주기적 로컬 백업 | **Todo** |
+| `backup` | Notion → Obsidian | 노션 문서의 주기적 증분 백업 | 완료 |
 
 ## 요구사항
 
@@ -113,16 +113,35 @@ func init() { pipeline.Register(platinum{}) }
 ./etl-worker migrate             # 실제 이관
 ```
 
-- **멱등**: 페이지 생성 전 Date(없으면 제목) 기준으로 노션을 조회해 중복을 건너뜁니다. 재실행해도 안전하고, 부분 실패 후 재실행하면 실패분만 다시 이관됩니다.
+- **멱등**: 페이지 생성 전 제목(파일명 어간) 기준으로 노션을 조회해 중복을 건너뜁니다. 제목은 노트 유형(Daily/Weekly/Monthly) 간에도 유일해서, Weekly 시작일이 Daily 날짜와 겹쳐도 안전합니다. 재실행해도 안전하고, 부분 실패 후 재실행하면 실패분만 다시 이관됩니다.
 - 워커 5개가 병렬 처리하지만 실제 처리량은 내장 Rate Limiter(2.5 req/s)가 결정합니다.
 - 항목 단위 경고·진행 기록은 `logs/migration/<실행시각>.log`에 남고, 실행 요약과 로그 경로가 stdout에 출력됩니다.
 
-### 3. `backup` — Notion → Obsidian (Todo)
+### 3. `backup` — Notion → Obsidian 증분 백업
 
-노션에서 작성된 문서를 `fromNotion.target`으로 증분 백업하는 기능입니다. 미구현이며 계획은 다음과 같습니다:
-- `last_edited_time` 워터마크 기반 증분 조회, 백업 디렉토리에 무조건 덮어쓰기(노션이 source of truth)
-- 노션 블록 → 마크다운 역변환, frontmatter에 노션 메타데이터 기록
-- cron 등록으로 주기 실행, 로그는 `logs/backup/`
+```bash
+./etl-worker backup --dry-run   # 실제 쓰기 없이 대상만 로그로 확인
+./etl-worker backup             # 실제 백업 (cron 등록용 명령도 동일)
+```
+
+- **증분**: `last_edited_time >= state.lastBackupRunAt` 워터마크 필터로 변경분만 조회합니다 (워터마크가 없으면 전체 백업). 워터마크는 실행 시작 시각으로, **전건 성공 시에만** 갱신되므로 부분 실패분은 다음 실행에서 재시도됩니다.
+- **덮어쓰기**: 백업 디렉토리(`fromNotion.target`)는 노션의 미러라서 같은 파일은 무조건 덮어씁니다. 소스 디렉토리와의 분리는 init이 검증합니다.
+- **파일명**: 제목(= 원본 옵시디언 파일명, 금지 문자 `-` 치환) → 제목이 비면 Date(`YYYY-MM-DD`) → 페이지 ID 순으로 파생합니다. 제목이 양방향의 노트 정체성이라 백업이 원본 이름을 복원하며, 같은 날짜의 데일리/주간 노트도 충돌하지 않습니다. 실행 내 충돌은 `-2`, `-3` 접미사로 처리합니다.
+- **frontmatter**: `notion_id`, `notion_last_edited`, `source: notion`을 기록합니다.
+- 항목 단위 경고·진행 기록은 `logs/backup/<실행시각>.log`에 남습니다.
+
+역변환 규칙 (블록 → 마크다운):
+
+| 노션 블록 | 마크다운 |
+|-----------|----------|
+| heading_1/2/3 | `# ` / `## ` / `### ` |
+| to_do | `- [ ] ` / `- [x] ` |
+| bulleted_list_item | `- ` |
+| paragraph | 일반 문단 (빈 문단은 빈 줄) |
+| 그 외 타입 | 텍스트 추출 가능하면 문단으로 폴백, 불가하면 건너뛰고 로그 |
+
+- 인라인 서식(annotations)은 복원하지 않고 plain text만 씁니다. migrate의 위키링크 변형(밑줄+URI 텍스트)도 되돌리지 않으므로 왕복은 손실이 있습니다 (백업/분석 목적으로 수용).
+- 중첩 블록은 내려가지 않고 최상위 텍스트만 백업하며, 중첩이 있는 블록은 로그로 알립니다.
 
 ## 본문 변환 규칙 (migrate)
 
@@ -157,9 +176,10 @@ func init() { pipeline.Register(platinum{}) }
 ## 프로젝트 구조
 
 ```
-main.go / init.go / migrate.go   # CLI 서브커맨드 (main이 plugin 패키지를 blank import로 등록)
+main.go                          # 엔트리포인트: 서브커맨드 라우팅, plugin 패키지 blank import 등록
 plugin/                          # 사용자 정의 플러그인 (platinum.go 등, pipeline.Plugin 구현체)
 internal/
+  cli/        # 서브커맨드 진입점 (init.go / migrate.go / backup.go, 실행 흐름 조립)
   config/     # 설정 로드·검증·원자적 저장·아카이빙, .env
   notion/     # API 클라이언트 (Limiter, 429 재시도, 블록/페이지)
   vault/      # 볼트 재귀 스캔, exclude 매칭, frontmatter 파싱
@@ -171,6 +191,5 @@ internal/
 
 ## Todo
 
-- [ ] `backup`: Notion → Obsidian 증분 백업 (워터마크, 블록 → 마크다운 역변환, cron)
+- [ ] M4: cron 등록과 무인 주기 실행 검증, macOS 잠자기와 cron의 관계 검토 (launchd 전환)
 - [ ] 마이그레이션 인라인 변환 확장 검토: 백슬래시 이스케이프(`\*`), 임베드(`![[...]]`) 표기
-- [ ] macOS 잠자기와 cron의 관계 검토 (launchd 전환)
