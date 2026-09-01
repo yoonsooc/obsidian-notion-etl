@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/yoonsooc/obsidian-notion-etl/internal/cli"
+
 	// The only reference to user-defined plugins: importing the package runs
 	// each plugin's init, which registers it into the pipeline registry.
-	// Common code (init/migrate) reaches plugins solely via pipeline.Lookup.
+	// Common code (internal/cli) reaches plugins solely via pipeline.Select.
 	_ "github.com/yoonsooc/obsidian-notion-etl/plugin"
 )
 
@@ -29,11 +31,11 @@ func run(args []string) error {
 
 	switch args[0] {
 	case "init":
-		return runInit()
+		return cli.RunInit()
 	case "migrate":
-		return runMigrate(args[1:])
+		return cli.RunMigrate(args[1:])
 	case "backup":
-		return errors.New("backup: not implemented yet (M3)")
+		return cli.RunBackup(args[1:])
 	default:
 		printUsage()
 		return fmt.Errorf("알 수 없는 명령: %s", args[0])
@@ -46,6 +48,6 @@ func printUsage() {
 Commands:
   init     base.config.yaml과 Notion DB를 검증하고 configs/latest.config.yaml을 생성
   migrate  Obsidian -> Notion 마이그레이션 (수동 1회성, --dry-run 지원)
-  backup   Notion -> Obsidian 백업 (cron 주기 실행 또는 수동)
+  backup   Notion -> Obsidian 증분 백업 (cron 주기 실행 또는 수동, --dry-run 지원)
 `)
 }
