@@ -1,8 +1,7 @@
 .env
 CLAUDE.md
-PRD.md
 base.config.yaml
 /configs/*
 /logs/*
-/docs/*
+/docs/self-review-guide.html
 etl-worker
