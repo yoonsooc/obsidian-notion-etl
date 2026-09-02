@@ -1,7 +1,8 @@
-# 다이어그램 (내부 참고용)
+# Diagrams
 
-README에서 제외하기로 한 Mermaid 다이어그램 보관본 (2026-09-03). 전체 구조, init, migrate, backup 순.
+작성일: 2026-09-03
 
+## Architure
 ```mermaid
 flowchart LR
     subgraph vault["옵시디언 볼트 (Google Drive)"]
@@ -30,6 +31,12 @@ flowchart LR
     bin -.->|"모든 API 호출은 단일<br/>Rate Limiter 2.5 req/s 통과"| db
 ```
 
+
+<br>
+
+## Flow Charts
+
+### init
 ```mermaid
 flowchart TD
     A[".env 토큰 로드"] --> B["base.config.yaml 로드·검증<br/>(필수 필드, 소스·백업 분리:<br/>동일·중첩 모두 거부)"]
@@ -44,6 +51,7 @@ flowchart TD
     I --> J["latest.config.yaml 원자적 저장<br/>(State 보존, 변경 시 이전본 아카이빙)"]
 ```
 
+### migrate
 ```mermaid
 flowchart TD
     A["설정 로드 (.env, base, latest —<br/>init 선행 필수)"] --> B["플러그인 선택 → 변환 체인 조립"]
@@ -67,7 +75,7 @@ flowchart TD
     S1 & S2 & S3 --> L
     L --> M["요약 출력<br/>(이관/중복/게이트/실패 건수)"]
 ```
-
+### backup
 ```mermaid
 flowchart TD
     A["설정 로드 (.env, base, latest)"] --> B["워터마크 읽기<br/>(state.lastBackupRunAt)"]

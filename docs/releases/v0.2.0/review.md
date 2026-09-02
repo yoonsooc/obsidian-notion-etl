@@ -1,4 +1,4 @@
-# M2 리뷰 (migrate + 변환 파이프라인)
+# v0.2.0 — M2 리뷰 (migrate + 변환 파이프라인)
 
 기간: 2026-08-21 (1일)
 상태: 완료. 실제 이관 64건 성공(경고 0), 재실행 멱등성(전건 중복 스킵) 검증 완료
@@ -13,7 +13,7 @@
 - `internal/config`: DateRule/MappingEntry 타입, ValidateMapping(지원 타입 화이트리스트)·ValidateDateRules, KnownFields 엄격 파싱
 - `internal/vault`: CollectNotes(재귀 수집, ScanFrontmatterKeys가 재사용)
 - init 검증자 전환 (D5-설정 역할 분리): 코드 규칙을 실제 스키마·노트와 대조
-- 태스크 문서: task-007 ~ task-011 (docs/milestones/M2/tasks/, 변경 이력 포함)
+- 태스크 문서: task-007 ~ task-011 (docs/releases/v0.2.0/tasks/, 변경 이력 포함)
 
 ## 주요 설계 변경 (마일스톤 중 사용자 결정)
 

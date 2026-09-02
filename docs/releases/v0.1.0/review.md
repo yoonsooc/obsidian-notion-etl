@@ -1,4 +1,4 @@
-# M1 리뷰 (골격 + init 설정 부트스트랩)
+# v0.1.0 — M1 리뷰 (골격 + init 설정 부트스트랩)
 
 기간: 2026-08-21 (1일)
 상태: 완료 (사용자 승인, 실제 노션 DB·볼트 E2E 동작 확인)
@@ -10,7 +10,7 @@
 - `internal/notion`: Rate Limiter(2.5 TPS, burst 3) 내장 클라이언트, 429 재시도(Retry-After, 최대 3회, 60초 클램프), API 2026-03-11 (데이터베이스/데이터 소스 분리 대응)
 - `internal/vault`: 재귀 스캔 + exclude glob(조상 디렉토리 매칭, NFC/NFD 정규화), frontmatter 파서(따옴표 키·키 내 콜론 오타 대응)
 - `internal/logging`: 실행별 로그 파일 (logs/migration/), 빈 로그 자동 정리
-- 태스크 문서: task-001 ~ task-006 (docs/milestones/M1/tasks/)
+- 태스크 문서: task-001 ~ task-006 (docs/releases/v0.1.0/tasks/)
 - 테스트: config 6개 함수 / notion 8개 함수 / vault 5개 함수 / logging 3개 함수, 전체 통과
 
 ## 1차 코드리뷰 (docs/review-checklist.md 18항목 + 정확성)
