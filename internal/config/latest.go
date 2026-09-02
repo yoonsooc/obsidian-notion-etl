@@ -97,9 +97,14 @@ func SaveLatest(path, backupDir string, cfg *LatestConfig, now time.Time) (archi
 }
 
 // writeFileAtomic writes to a temp file in the same directory and renames it
-// over path, so a failed write never corrupts the existing file.
+// over path, so a failed write never corrupts the existing file. The parent
+// directory is created if missing: configs/ is gitignored, so a fresh
+// checkout (or a relocated runtime home) starts without it.
 func writeFileAtomic(path string, data []byte) error {
 	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("설정 디렉토리 생성 실패: %w", err)
+	}
 	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return fmt.Errorf("임시 파일 생성 실패: %w", err)
