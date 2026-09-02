@@ -13,6 +13,8 @@ type Block struct {
 	Heading3         *RichTextBlock `json:"heading_3,omitempty"`
 	BulletedListItem *RichTextBlock `json:"bulleted_list_item,omitempty"`
 	ToDo             *ToDoBlock     `json:"to_do,omitempty"`
+	Quote            *RichTextBlock `json:"quote,omitempty"`
+	Callout          *CalloutBlock  `json:"callout,omitempty"`
 	// HasChildren is set on read responses; nested children are not collected (v1).
 	HasChildren bool `json:"has_children,omitempty"`
 	// Fallback holds the rich_text of an unsupported block type extracted at
@@ -33,7 +35,8 @@ func (b *Block) UnmarshalJSON(data []byte) error {
 	}
 	*b = Block(alias)
 	if b.Paragraph != nil || b.Heading1 != nil || b.Heading2 != nil ||
-		b.Heading3 != nil || b.BulletedListItem != nil || b.ToDo != nil || b.Type == "" {
+		b.Heading3 != nil || b.BulletedListItem != nil || b.ToDo != nil ||
+		b.Quote != nil || b.Callout != nil || b.Type == "" {
 		return nil
 	}
 
@@ -79,6 +82,18 @@ type RichTextBlock struct {
 type ToDoBlock struct {
 	RichText []RichText `json:"rich_text"`
 	Checked  bool       `json:"checked"`
+}
+
+// CalloutBlock is a callout block body; Icon is an emoji icon when set.
+type CalloutBlock struct {
+	RichText []RichText `json:"rich_text"`
+	Icon     *Icon      `json:"icon,omitempty"`
+}
+
+// Icon is a block icon; only the emoji variant is used.
+type Icon struct {
+	Type  string `json:"type"`
+	Emoji string `json:"emoji"`
 }
 
 // RichText is an element of a rich text array; Annotations is set only when
@@ -161,6 +176,19 @@ func NewToDo(text string, checked bool) Block {
 // NewToDoRich builds a to_do block from a rich text array.
 func NewToDoRich(richText []RichText, checked bool) Block {
 	return Block{Object: "block", Type: "to_do", ToDo: &ToDoBlock{RichText: richText, Checked: checked}}
+}
+
+// NewQuoteRich builds a quote block from a rich text array.
+func NewQuoteRich(richText []RichText) Block {
+	return Block{Object: "block", Type: "quote", Quote: &RichTextBlock{RichText: richText}}
+}
+
+// NewCalloutRich builds a callout block with an emoji icon.
+func NewCalloutRich(richText []RichText, emoji string) Block {
+	return Block{Object: "block", Type: "callout", Callout: &CalloutBlock{
+		RichText: richText,
+		Icon:     &Icon{Type: "emoji", Emoji: emoji},
+	}}
 }
 
 // ChunkText splits text into limit-sized chunks counted in runes, for Notion's

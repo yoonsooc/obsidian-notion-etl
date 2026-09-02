@@ -49,14 +49,14 @@ func TestFromBlocksMapping(t *testing.T) {
 func TestFromBlocksFallbackAndSkip(t *testing.T) {
 	blocks := []notion.Block{
 		{Type: "paragraph", Paragraph: &notion.RichTextBlock{RichText: rt("본문")}},
-		{Type: "quote", Fallback: rt("인용문")}, // unsupported with text -> paragraph fallback
+		{Type: "toggle", Fallback: rt("토글 텍스트")}, // unsupported with text -> paragraph fallback
 		{Type: "divider"},   // unsupported without text -> skipped
 		{Type: "paragraph"}, // malformed known type (nil body) -> skipped
 		{Type: "paragraph", Paragraph: &notion.RichTextBlock{}}, // empty paragraph -> spacing only
 	}
 
 	md, warnings := FromBlocks(blocks)
-	want := "본문\n\n인용문"
+	want := "본문\n\n토글 텍스트"
 	if md != want {
 		t.Errorf("FromBlocks() = %q, want %q", md, want)
 	}

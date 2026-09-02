@@ -162,14 +162,24 @@ func TestListBlockChildrenPaginates(t *testing.T) {
 }
 
 func TestBlockUnmarshalFallback(t *testing.T) {
-	// quote: unsupported type with rich_text -> Fallback extracted.
+	// toggle: unsupported type with rich_text -> Fallback extracted.
+	var toggle Block
+	if err := json.Unmarshal([]byte(`{"object":"block","type":"toggle",
+		"toggle":{"rich_text":[{"type":"text","text":{"content":"토글"},"plain_text":"토글"}]}}`), &toggle); err != nil {
+		t.Fatalf("unmarshal toggle: %v", err)
+	}
+	if got := JoinPlainText(toggle.Fallback); got != "토글" {
+		t.Errorf("toggle Fallback = %q, want 토글", got)
+	}
+
+	// quote/callout are typed now: no Fallback, bodies decode into their fields.
 	var quote Block
 	if err := json.Unmarshal([]byte(`{"object":"block","type":"quote",
 		"quote":{"rich_text":[{"type":"text","text":{"content":"인용문"},"plain_text":"인용문"}]}}`), &quote); err != nil {
 		t.Fatalf("unmarshal quote: %v", err)
 	}
-	if got := JoinPlainText(quote.Fallback); got != "인용문" {
-		t.Errorf("quote Fallback = %q, want 인용문", got)
+	if quote.Quote == nil || len(quote.Fallback) != 0 {
+		t.Errorf("quote = %+v, want typed body without Fallback", quote)
 	}
 
 	// divider: no rich_text -> Fallback stays empty.

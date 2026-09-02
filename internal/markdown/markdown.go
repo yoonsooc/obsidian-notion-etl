@@ -18,6 +18,8 @@ const maxRichTextPerBlock = 100
 //   - "# " / "## " / "### "              -> heading_1/2/3 ("#### "+ falls back to heading_3)
 //   - "- [ ] " / "- [x] " (case-insensitive) -> to_do
 //   - "- " / "* "                        -> bulleted_list_item (nesting flattened)
+//   - "> [!type] ..." + following "> "   -> callout (Obsidian callout; emoji icon by type)
+//   - "> "                               -> consecutive quote lines grouped into one quote
 //   - other non-empty lines              -> consecutive lines grouped into one paragraph
 //
 // Horizontal rules (a standalone line of 3+ dashes) emit no block and only
@@ -33,8 +35,10 @@ func ToBlocks(body, vaultName string) []notion.Block {
 	lines := strings.Split(body, "\n")
 	blocks := make([]notion.Block, 0, len(lines))
 
-	// para accumulates consecutive lines that form one paragraph.
+	// para and quote accumulate consecutive lines of their kind; at most one
+	// of the two is non-empty at a time (entering one flushes the other).
 	para := make([]string, 0, len(lines))
+	quote := make([]string, 0)
 	flush := func() {
 		if len(para) == 0 {
 			return
@@ -43,11 +47,40 @@ func ToBlocks(body, vaultName string) []notion.Block {
 		para = para[:0]
 		blocks = appendRich(blocks, text, vaultName, notion.NewParagraphRich)
 	}
+	flushQuote := func() {
+		if len(quote) == 0 {
+			return
+		}
+		group := quote
+		quote = quote[:0]
+		if ctype, title, ok := parseCalloutHeader(group[0]); ok {
+			text := title
+			if body := strings.Join(group[1:], "\n"); body != "" {
+				if text == "" {
+					text = body
+				} else {
+					text += "\n" + body
+				}
+			}
+			blocks = appendRich(blocks, text, vaultName, func(rt []notion.RichText) notion.Block {
+				return notion.NewCalloutRich(rt, calloutEmoji(ctype))
+			})
+			return
+		}
+		blocks = appendRich(blocks, strings.Join(group, "\n"), vaultName, notion.NewQuoteRich)
+	}
 
 	for _, raw := range lines {
 		line := strings.TrimSuffix(raw, "\r")
 		// Detect markers on the trimmed line so nested items are flattened.
 		marker := strings.TrimSpace(line)
+
+		if content, ok := parseQuoteLine(marker); ok {
+			flush()
+			quote = append(quote, content)
+			continue
+		}
+		flushQuote()
 
 		if marker == "" || isRule(marker) {
 			flush()
@@ -76,7 +109,40 @@ func ToBlocks(body, vaultName string) []notion.Block {
 		para = append(para, line)
 	}
 	flush()
+	flushQuote()
 	return blocks
+}
+
+// parseQuoteLine extracts the content of a blockquote line (">", "> text",
+// ">text"); ok is false for non-quote lines.
+func parseQuoteLine(s string) (content string, ok bool) {
+	rest, found := strings.CutPrefix(s, ">")
+	if !found {
+		return "", false
+	}
+	return strings.TrimPrefix(rest, " "), true
+}
+
+// parseCalloutHeader recognizes an Obsidian callout header ("[!type] title",
+// already stripped of the "> " prefix). The optional fold marker ("+"/"-")
+// after the bracket is dropped; ok is false when the line is a plain quote.
+func parseCalloutHeader(s string) (ctype, title string, ok bool) {
+	rest, found := strings.CutPrefix(s, "[!")
+	if !found {
+		return "", "", false
+	}
+	end := strings.IndexByte(rest, ']')
+	if end <= 0 {
+		return "", "", false
+	}
+	ctype = strings.ToLower(rest[:end])
+	for _, r := range ctype {
+		if r < 'a' || r > 'z' {
+			return "", "", false
+		}
+	}
+	title = strings.TrimSpace(strings.TrimLeft(rest[end+1:], "+-"))
+	return ctype, title, true
 }
 
 // appendRich inline-parses text and appends one or more blocks of the same

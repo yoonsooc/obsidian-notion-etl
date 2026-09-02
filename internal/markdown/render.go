@@ -55,6 +55,14 @@ func FromBlocks(blocks []notion.Block) (md string, warnings []string) {
 				marker = "- [x] "
 			}
 			emit(marker+notion.JoinPlainText(b.ToDo.RichText), true)
+		case b.Type == "quote" && b.Quote != nil:
+			emit(quoteLines("", notion.JoinPlainText(b.Quote.RichText)), false)
+		case b.Type == "callout" && b.Callout != nil:
+			ctype := "note"
+			if b.Callout.Icon != nil {
+				ctype = calloutType(b.Callout.Icon.Emoji)
+			}
+			emit(quoteLines("[!"+ctype+"] ", notion.JoinPlainText(b.Callout.RichText)), false)
 		default:
 			text := notion.JoinPlainText(b.Fallback)
 			if text == "" {
@@ -66,4 +74,19 @@ func FromBlocks(blocks []notion.Block) (md string, warnings []string) {
 		}
 	}
 	return strings.Join(lines, "\n"), warnings
+}
+
+// quoteLines renders text as blockquote lines ("> ..."), prefixing the first
+// line with head (a callout header, or empty for a plain quote). A header
+// with no text renders as a bare "> [!type]" line.
+func quoteLines(head, text string) string {
+	if text == "" {
+		return "> " + strings.TrimSpace(head)
+	}
+	lines := strings.Split(text, "\n")
+	lines[0] = "> " + head + lines[0]
+	for i := 1; i < len(lines); i++ {
+		lines[i] = "> " + lines[i]
+	}
+	return strings.Join(lines, "\n")
 }
