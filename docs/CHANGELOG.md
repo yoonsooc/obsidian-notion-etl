@@ -4,6 +4,15 @@
 설계 결정(D번호)의 원문은 [PRD](PRD.md)의 Decision Log(D1~D16, 동결)와
 [decisions/](decisions/)(D17~)에 있습니다. 버전은 git 태그와 일치합니다.
 
+## v1.1.0 — 2026-09-16 · help 명령과 backup 스케줄 관리 ([상세](releases/v1.1.0.md))
+
+- `etl-worker help` (-h/--help): 명령·플래그·대표 흐름을 안내하는 전역 도움말
+  (영문 기본, `--lang=ko`로 한국어)
+- backup 표면 재정의 (D17): 무옵션은 수동 1회 실행, 자동화는 crontab 셀프 등록
+  플래그(`--schedule[=<크론식>]`/`--unschedule`/`--status`)로 관리. 크론식은 생략 시
+  매시 정각이며 5필드 사전 검증. 상주 데몬은 비채택
+- 등록 라인은 절대경로 인용 형태로 생성, 레거시 수기 등록 라인도 감지·관리
+
 ## v1.0.0 — 2026-09-03 · 프로토타입 완성 ([상세](releases/v1.0.0.md))
 
 - cron 무인 주기 실행: 매시 정각 backup, macOS TCC 진단(dyld 단계 무한 대기)과

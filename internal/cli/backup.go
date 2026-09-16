@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/yoonsooc/obsidian-notion-etl/internal/config"
@@ -21,11 +22,45 @@ import (
 // retries on the next run (overwrites make reprocessing safe).
 func RunBackup(args []string) (err error) {
 	dryRun := false
-	for _, a := range args {
-		if a != "--dry-run" {
-			return fmt.Errorf("backup: 알 수 없는 인자: %s", a)
+	scheduleMode := ""
+	cronSpec := defaultCronSpec
+	setMode := func(mode string) error {
+		if scheduleMode != "" {
+			return fmt.Errorf("backup: --%s와 --%s는 함께 쓸 수 없습니다", scheduleMode, mode)
 		}
-		dryRun = true
+		scheduleMode = mode
+		return nil
+	}
+	for _, a := range args {
+		switch {
+		case a == "--dry-run":
+			dryRun = true
+		case a == "--schedule":
+			if err := setMode("schedule"); err != nil {
+				return err
+			}
+		case strings.HasPrefix(a, "--schedule="):
+			if err := setMode("schedule"); err != nil {
+				return err
+			}
+			cronSpec = strings.TrimPrefix(a, "--schedule=")
+		case a == "--unschedule":
+			if err := setMode("unschedule"); err != nil {
+				return err
+			}
+		case a == "--status":
+			if err := setMode("status"); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("backup: 알 수 없는 인자: %s (etl-worker help 참조)", a)
+		}
+	}
+	if scheduleMode != "" {
+		if dryRun {
+			return fmt.Errorf("backup: --dry-run은 --%s와 함께 쓸 수 없습니다", scheduleMode)
+		}
+		return runSchedule(scheduleMode, cronSpec)
 	}
 
 	logger, err := logging.New("backup", time.Now())

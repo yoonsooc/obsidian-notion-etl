@@ -123,9 +123,17 @@ func init() { pipeline.Register(platinum{}) }
 ### 3. `backup` — Notion → Obsidian 증분 백업
 
 ```bash
-./etl-worker backup --dry-run   # 실제 쓰기 없이 대상만 로그로 확인
-./etl-worker backup             # 실제 백업 (cron 등록용 명령도 동일)
+./etl-worker backup --dry-run     # 실제 쓰기 없이 대상만 로그로 확인
+./etl-worker backup               # 수동 1회 백업
+./etl-worker backup --schedule    # 자동 백업을 crontab에 등록 (기본: 매시 정각, D17)
+./etl-worker backup --schedule="30 2 * * *"   # 크론식 지정 (분 시 일 월 요일)
+./etl-worker backup --status      # 자동 백업 등록 여부·등록 라인 확인
+./etl-worker backup --unschedule  # 자동 백업 해제 (다른 crontab 항목은 보존)
 ```
+
+backup 자체는 수동 1회 명령이고, 자동화는 `--schedule`이 사용자 crontab에 엔트리를
+등록하는 방식입니다 (상주 데몬 없음). 전체 명령·플래그 안내는 `etl-worker help`에도
+나옵니다 (영문 기본, 한국어는 `etl-worker help --lang=ko`).
 
 - **증분**: `last_edited_time >= state.lastBackupRunAt` 워터마크 필터로 변경분만 조회합니다 (워터마크가 없으면 전체 백업). 워터마크는 실행 시작 시각으로, **전건 성공 시에만** 갱신되므로 부분 실패분은 다음 실행에서 재시도됩니다.
 - **덮어쓰기**: 백업 디렉토리(`fromNotion.target`)는 노션의 미러라서 같은 파일은 무조건 덮어씁니다. 소스 디렉토리와의 분리는 init이 검증합니다.
@@ -184,9 +192,11 @@ func init() { pipeline.Register(platinum{}) }
 ```bash
 mkdir -p ~/etl-worker && cd <저장소> && go build -o ~/etl-worker/etl-worker .   # 배포(재배포 동일)
 # 최초 1회: .env, base.config.yaml을 운영 홈에 두고 ~/etl-worker에서 ./etl-worker init
-( crontab -l 2>/dev/null; echo '0 * * * * cd ~/etl-worker && ./etl-worker backup >> logs/cron.log 2>&1' ) | crontab -
-crontab -l   # 확인 / 해제는 crontab -e
+cd ~/etl-worker && ./etl-worker backup --schedule   # 매시 자동 백업 등록 (터미널에서 실행)
+./etl-worker backup --status                        # 확인 / 해제는 --unschedule
 ```
+
+- `--schedule`은 실행 시점의 디렉토리와 바이너리 **절대경로**로 crontab 라인을 만들므로 반드시 운영 홈에서 실행하세요. 주기는 `--schedule="<크론식>"`(5필드, 생략 시 매시 정각)으로 지정하고, 변경은 `--unschedule` 후 재등록하거나 `crontab -e`로 직접 수정합니다.
 
 - 운영 홈 구성: `etl-worker`(바이너리), `.env`, `base.config.yaml`, `configs/`(워터마크 포함 스냅샷), `logs/`. **실(非 dry-run) 실행은 항상 운영 홈에서** 합니다.
 - 개발 환경: 설정 경로가 전부 작업 디렉토리 기준 상대 경로라서, 저장소에 `.env`와 `base.config.yaml` 사본을 두고 `init`을 실행하면 개발용 스냅샷(configs/)이 로컬에 생겨 테스트가 가능합니다. 다만 개발 쪽에서는 `go test`와 `--dry-run`까지만 사용하세요. 실 실행을 개발 쪽에서 하면 같은 노션 DB·백업 디렉토리를 건드리면서 워터마크만 두 곳으로 갈립니다 (dry-run은 상태를 쓰지 않아 안전).
