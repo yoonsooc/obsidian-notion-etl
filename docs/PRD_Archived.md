@@ -12,7 +12,7 @@ Obsidian(로컬 Markdown 볼트)과 Notion(클라우드 데이터베이스) 사�
 
 두 가지 작업을 수행한다.
 
-1. **Migration (Obsidian → Notion, 수동 1회성):** 과거의 데일리/다이어리 노트를 노션 DB(`Platinum`)로 이관한다. 이후 데일리 노트는 노션에서 관리한다.
+1. **Migration (Obsidian → Notion, 수동 1회성):** 과거의 데일리/다이어리 노트를 노션 DB로 이관한다. 이후 데일리 노트는 노션에서 관리한다.
 2. **Backup ETL (Notion → Obsidian, 주기 실행):** 노션 DB에서 작성/수정된 문서를 로컬 볼트의 백업 디렉토리로 주기적으로 긁어온다. 목적은 분석과 백업이다.
 
 양방향 실시간 동기화가 아니므로 충돌(Conflict) 해결 로직은 만들지 않는다. 이관된 데이터는 목적지에서 읽기 전용으로 취급한다.
@@ -40,11 +40,11 @@ Obsidian(로컬 Markdown 볼트)과 Notion(클라우드 데이터베이스) 사�
 | D8 | 변환 아키텍처 | **Transformer 인터페이스 기반 파이프라인.** 문서마다 등록 순서대로 한 번씩 통과. 선언적 설정(mapping, dateFrom)은 내장 Transformer의 조립 입력이고, 커스텀 로직은 같은 인터페이스의 코드 Transformer로 추가 | 단순 규칙은 설정에, 복잡한 규칙은 코드에. 동적 플러그인 로딩은 하지 않음 (2026-08-21) |
 | D9 | 실제 매핑 규칙 | Type은 고정값 `Todo`, Status는 고정값 `Done`. `docu_type`(Plan/Project/Research/Study)과 `category`는 노션으로 보내지 않음 | docu_type 전 값이 Todo로 수렴하므로 값 변환 테이블 불필요 (2026-08-21) |
 | D10 | 변환 규칙의 위치 | **날짜 파생(dateFrom)과 속성 매핑(mapping) 규칙은 설정 파일이 아니라 코드(`pipeline.go`)에 둔다.** base.config.yaml은 환경 정보(경로, DB, exclude)만 담는다. 규칙 변경은 코드 수정 + 리빌드 | 설정이 길어지는 것을 피하려는 사용자 결정. 코드에 있으면 base/latest 간 신선도 불일치 문제도 소멸 (2026-08-21). 위치와 계약은 D11로 재정리, 설정 기반 규칙은 D12로 opt-in 복원 |
-| D11 | 플러그인 아키텍처 | **변환 정책을 `pipeline.Plugin` 인터페이스 구현체(`plugin/` 패키지, 예: platinum.go)로 분리하고, 접합부를 `internal/pipeline`(레지스트리 Register/Select + 체인 조립 BuildChain) 한 곳으로 일원화한다.** 공통부(init/migrate)는 플러그인 패키지에 의존하지 않으며 유일한 참조는 main의 blank import(자가 등록). 사용할 플러그인은 base.config.yaml의 `pipeline.plugin`으로 선택한다 | pipeline.go에 커스텀 비즈니스 로직과 범용 기능이 혼재하던 문제 해소. D10의 "규칙은 코드로"는 유지하되 위치와 계약을 정리. 인터페이스는 선언적(규칙 데이터만 반환, 실패 없음)이라 플러그인 에러가 접합부로 전파되지 않고, 규칙 오류는 init 검증에서, 노트 단위 에러는 transform.Run에서 격리된다 (2026-08-28) |
+| D11 | 플러그인 아키텍처 | **변환 정책을 `pipeline.Plugin` 인터페이스 구현체(`plugin/` 패키지, 예: myplugin.go)로 분리하고, 접합부를 `internal/pipeline`(레지스트리 Register/Select + 체인 조립 BuildChain) 한 곳으로 일원화한다.** 공통부(init/migrate)는 플러그인 패키지에 의존하지 않으며 유일한 참조는 main의 blank import(자가 등록). 사용할 플러그인은 base.config.yaml의 `pipeline.plugin`으로 선택한다 | pipeline.go에 커스텀 비즈니스 로직과 범용 기능이 혼재하던 문제 해소. D10의 "규칙은 코드로"는 유지하되 위치와 계약을 정리. 인터페이스는 선언적(규칙 데이터만 반환, 실패 없음)이라 플러그인 에러가 접합부로 전파되지 않고, 규칙 오류는 init 검증에서, 노트 단위 에러는 transform.Run에서 격리된다 (2026-08-28) |
 | D12 | 내장 default 플러그인 | **사용자 플러그인 코드가 없어도 동작하는 내장 default 플러그인을 둔다.** 규칙은 base.config.yaml의 `pipeline.dateFrom`/`pipeline.mapping`(yaml, 코드 수정 없이 편집)에서 오고, 없으면 일반 관례로 폴백(파일명 `2006-01-02` → frontmatter `date` → `created`, 매핑 없음). yaml 규칙은 default 전용이라 사용자 플러그인과 병용하면 에러이고, `default`는 예약어다. 위치는 plugin/이 아닌 internal(순환 참조, 등록-설정 로드 시점 불일치, 프레임워크 기능이라는 의미론) | 초기 상태(플러그인 전무)에서도 도구가 기능해야 함. latest의 dateFrom/mapping은 검증 후 기록용 출력이고 base가 유일한 규칙 입력이라는 역할 구분 유지 (2026-08-29) |
 | D13 | 도메인 어휘 규칙 | **타입/필드의 어휘는 입출력 위치가 아니라 데이터가 속한 도메인을 따르고, 흐름의 방향은 패키지/함수 이름이 표현한다.** 산출물 타입은 `Draft` 접미사(migrate: Note → PageDraft, backup: Page → NoteDraft 예정). 단일 언어 패키지 불변식: vault에 Notion 어휘, notion에 Obsidian 어휘 금지(혼용은 변환 패키지에서만). 상세 glossary는 CLAUDE.md, grep 검증은 리뷰 체크리스트 19번 | 두 도메인 용어가 여러 곳에 쓰이는 가독성 문제. 입출력 위치 기준 규칙은 방향이 반대인 backup에서 깨지므로 소속 기준으로 확정 (2026-08-29) |
 | D14 | 노트 정체성은 제목 | **중복 검사와 백업 파일명 모두 제목(Name) 기준으로 통일한다.** 제목은 파일명 어간이라 노트 유형 간 유일하고, 기존 이관분의 제목도 원본 파일명이라 재실행 멱등성이 유지되며, 백업이 원본 옵시디언 이름을 복원한다. ExistsByDate API는 제거, 백업 파일명은 제목 → Date → 페이지 ID 순 폴백 | D2의 Date 우선 검사와 Date 기준 백업 파일명은 "1일 1노트" 전제였는데, D15로 Weekly/Monthly가 시작 날짜를 갖게 되면 같은 Date의 노트가 여럿 생겨(주간 시작일 = 그 날의 데일리) 중복 오인 스킵과 백업 파일명 `-2` 접미사 충돌이 발생함. 셀프 리뷰 가이드 Q4의 현실화 (2026-09-01) |
-| D15 | 이관 범위 확장 | **migrate 대상을 Daily에서 Work 전체(Daily/Weekly/Monthly)로 확장한다.** 날짜 파생은 platinum 체인 확장으로 해결: Monthly(`MG_202603`)는 레이아웃 `MG_200601` 선언(일 미지정 → 1일), Weekly(`WG_260513-0517`, 구분자 `-`/`~`, 끝 4/6자리 혼재)는 범위 접미사를 레이아웃으로 표현할 수 없어 커스텀 Transformer(weeklyStartDate)로 시작일 파생하며, 주간 노트는 created_date 폴백보다 파일명이 정본이라 덮어쓴다. 유형별 별도 플러그인은 두지 않음(실행당 플러그인 1개 구조, 체인이 유형 디스패처) | Weekly/Monthly도 노션 관리·백업 대상에 포함. 이에 따라 백업 디렉토리를 소스 밖(`100. Inbox/Daily-NotionBackup`)으로 이동하고 워터마크를 리셋해 전체 미러를 재수행. **백업-소스 중첩은 설정 검증이 조상 경로 SameFile 비교로 양방향 차단**(백업⊂소스: 재이관 루프, 소스⊂백업: 미러 덮어쓰기 위험) (2026-09-01) |
+| D15 | 이관 범위 확장 | **migrate 대상을 Daily에서 Work 전체(Daily/Weekly/Monthly)로 확장한다.** 날짜 파생은 사용자 플러그인 체인 확장으로 해결: Monthly(`MG_202603`)는 레이아웃 `MG_200601` 선언(일 미지정 → 1일), Weekly(`WG_260513-0517`, 구분자 `-`/`~`, 끝 4/6자리 혼재)는 범위 접미사를 레이아웃으로 표현할 수 없어 커스텀 Transformer(weeklyStartDate)로 시작일 파생하며, 주간 노트는 created_date 폴백보다 파일명이 정본이라 덮어쓴다. 유형별 별도 플러그인은 두지 않음(실행당 플러그인 1개 구조, 체인이 유형 디스패처) | Weekly/Monthly도 노션 관리·백업 대상에 포함. 이에 따라 백업 디렉토리를 소스 밖(`100. Inbox/Daily-NotionBackup`)으로 이동하고 워터마크를 리셋해 전체 미러를 재수행. **백업-소스 중첩은 설정 검증이 조상 경로 SameFile 비교로 양방향 차단**(백업⊂소스: 재이관 루프, 소스⊂백업: 미러 덮어쓰기 위험) (2026-09-01) |
 | D16 | 인용·콜아웃 매핑과 인라인 확장 종결 | **`> ` 인용은 quote 블록, `> [!type]` 콜아웃은 callout 블록(타입별 이모지 아이콘)으로 양방향 매핑한다** (D4의 블록 집합 확장). 노션 에디터의 `>`는 토글이지만 API로는 quote/callout 생성이 가능함을 이용. 백슬래시 이스케이프(`\*`)는 실볼트 사용 0건으로 미구현 종결, 임베드(`![[...]]`)는 2건으로 현행 변환(`!`+밑줄+URI) 수용 종결. 스케줄러는 이식성을 위해 cron 유지 확정(launchd는 cron 불가 배치의 대안) | 실볼트 조사 기반 결정: 인용 180줄·콜아웃 14건(5유형)은 실사용, 이스케이프·임베드는 근거 부족. README Todo 소거 목표 (2026-09-03) |
 
 이 결정에 따라 `base.config.yaml`의 `fromNotion.target`을 별도 디렉토리(예: `100. Inbox/Work/Daily-NotionBackup`)로 변경해야 한다. 또한 기존 `to-notion/`, `to-obsidian/`의 main 패키지는 단일 바이너리 구조로 재편한다.
@@ -57,7 +57,7 @@ Obsidian(로컬 Markdown 볼트)과 Notion(클라우드 데이터베이스) 사�
 obsidian-notion-etl/
 ├── main.go                  # 엔트리포인트. 서브커맨드 라우팅, plugin 패키지 blank import (D11)
 ├── go.mod
-├── plugin/                  # 사용자 정의 플러그인 (pipeline.Plugin 구현체, 예: platinum.go) (D11)
+├── plugin/                  # 사용자 정의 플러그인 (pipeline.Plugin 구현체, 예: myplugin.go) (D11)
 ├── internal/
 │   ├── cli/                 # 서브커맨드 진입점 (init/migrate/backup, 실행 흐름 조립)
 │   ├── config/              # base/latest 설정 로드, 검증, 백업 아카이빙
@@ -103,7 +103,7 @@ NOTION_TOKEN=secret_xxx
 obsidian:
   vault:
     toNotion:
-      name: 'Yersona'
+      name: 'MyVault'
       path: '<볼트 절대경로>'
       target: '100. Inbox/Work'                # 마이그레이션 소스 (Daily/Weekly/Monthly 재귀 스캔, D15)
       effectiveDate: '2025-11-01'              # 이 날짜 이후(포함) 파일만 이관
@@ -111,20 +111,20 @@ obsidian:
         - '하루를 시작하기 전에.md'            # 상대경로, 조상 디렉토리에 매칭. NFC/NFD 정규화 처리됨)
 ```
 
-변환 규칙(날짜 파생 체인, 속성 매핑)의 출처는 D11-플러그인 아키텍처에 따라 **선택된 플러그인**이다. `pipeline.plugin` 키로 사용할 플러그인을 지정하며(생략 시 등록 1개면 그것, 없으면 내장 default), 사용자 플러그인(예: platinum)의 규칙은 코드에, 내장 default 플러그인(D12)의 규칙은 base.config.yaml의 `pipeline.dateFrom`/`pipeline.mapping`(yaml)에 둔다. 설정 파싱은 엄격 모드(KnownFields)라서 오타 키는 로드 시점에 에러로 잡힌다.
+변환 규칙(날짜 파생 체인, 속성 매핑)의 출처는 D11-플러그인 아키텍처에 따라 **선택된 플러그인**이다. `pipeline.plugin` 키로 사용할 플러그인을 지정하며(생략 시 등록 1개면 그것, 없으면 내장 default), 사용자 플러그인의 규칙은 코드에, 내장 default 플러그인(D12)의 규칙은 base.config.yaml의 `pipeline.dateFrom`/`pipeline.mapping`(yaml)에 둔다. 설정 파싱은 엄격 모드(KnownFields)라서 오타 키는 로드 시점에 에러로 잡힌다.
 
 ```yaml
     fromNotion:
-      name: 'Yersona'
+      name: 'MyVault'
       path: '<볼트 절대경로>'
       target: '100. Inbox/Daily-NotionBackup'  # 백업 목적지 (소스 밖으로 완전 분리, 중첩 금지. D15)
 notion:
   db:
     url: 'https://www.notion.so/<32자리ID>?v=...'
-    name: 'Platinum'
+    name: 'MyDatabase'
 pipeline:
-  plugin: 'platinum'                                # 사용할 변환 플러그인 (D11)
-# (참고) platinum 플러그인(plugin/platinum.go)의 규칙:
+  plugin: 'myplugin'                                # 사용할 변환 플러그인 (D11)
+# (참고) 사용자 플러그인(plugin/myplugin.go)의 규칙:
 #   DateRules: DN_060102 -> 060102 -> MG_200601(월간, 1일로 파생) -> frontmatter 'created_date'
 #   커스텀 Transformer: weeklyStartDate(WG_ 파일명에서 주간 시작일, created_date보다 우선), nfcTitle
 #   Mapping: Type=Todo, Status=Done (고정값)
@@ -274,7 +274,7 @@ Mac이 잠자기 상태면 cron이 건너뛰는 한계가 있다. 증분 워터�
 
 ## 9. 미해결 질문 (Open Questions)
 
-1. **Platinum DB의 실제 컬럼 구성**은 init 실행 시 API로 확인한다. 초안 코드가 가정한 `Name/Date/Type/Obsidian_URI` 4개 컬럼과 다르면 매핑 테이블에서 조정한다.
+1. **대상 DB의 실제 컬럼 구성**은 init 실행 시 API로 확인한다. 초안 코드가 가정한 `Name/Date/Type/Obsidian_URI` 4개 컬럼과 다르면 매핑 테이블에서 조정한다.
 2. 백업 파일명 충돌(같은 날짜의 노션 페이지가 2개 이상)은 v1에서 `YYYY-MM-DD-2.md` 식 접미사로 처리할지, 나중 페이지가 덮어쓸지 미정. 기본은 접미사 부여로 구현한다.
 
 ### 9.1 해소된 질문

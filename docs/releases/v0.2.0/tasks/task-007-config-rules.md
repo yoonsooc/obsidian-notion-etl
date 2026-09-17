@@ -12,7 +12,7 @@
 > - **제거됨**: `VaultTarget.DateFrom`, `BaseConfig.Mapping` yaml 필드.
 >   base.config.yaml은 환경 정보(경로, DB, exclude)만 담는다.
 > - **유지·전용됨**: `DateRule`/`MappingEntry` 타입과 `ValidateMapping`은 그대로
->   살아남아, pipeline.go의 코드 규칙(dailyDateRules/platinumMapping)을 정의·검증하는
+>   살아남아, pipeline.go의 코드 규칙(dailyDateRules/커스텀 매핑)을 정의·검증하는
 >   타입으로 쓰인다. `validateDateRules`는 init이 호출할 수 있게 `ValidateDateRules`로
 >   export됐다. `LatestConfig.Mapping`/`LatestConfig.DateFrom`은 기록용 스냅샷으로 유지.
 > - **유지·강화됨**: KnownFields 엄격 파싱은 그대로이며, 이제 낡은 설정에 남은

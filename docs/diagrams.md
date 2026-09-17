@@ -19,7 +19,7 @@ flowchart LR
     end
 
     subgraph notion["Notion"]
-        db["Platinum DB<br/>(단일 데이터 소스)"]
+        db["대상 노션 DB<br/>(단일 데이터 소스)"]
     end
 
     cron["cron (매시 정각)"] -->|"backup 실행"| bin

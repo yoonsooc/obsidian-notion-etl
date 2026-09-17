@@ -10,7 +10,7 @@
 > 변경 이력 (2026-08-21, D10-변환 규칙의 위치 + M2 리뷰 반영):
 > - 이 문서 2항의 "체인 조립"과 3항의 규칙 출처가 latest 스냅샷에서 pipeline.go의
 >   buildPipeline(코드 규칙)으로 변경됨. latest의 mapping/dateFrom은 기록용.
-> - init 검증자 전환도 base.Mapping이 아니라 pipeline.go의 platinumMapping()/
+> - init 검증자 전환도 base.Mapping이 아니라 pipeline.go의 커스텀 매핑 함수/
 >   dailyDateRules()를 검증하는 방식으로 구현됨.
 > - 중복 검사 앞에 실행 내 키 선점(claim)이 추가됨 (M2 리뷰 5번-검사·생성 경합).
 > - frontmatter 키 검증이 정확 일치 기준 + 대소문자 불일치 별도 경고로 강화됨

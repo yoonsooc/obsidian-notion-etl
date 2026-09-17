@@ -75,7 +75,7 @@ notion:
 날짜 파생과 속성 매핑 규칙은 설정 파일이 아니라 **코드**에 있습니다. 
 설정이 길어지는 것을 피하고, 규칙을 타입 검사와 테스트 아래에 두기 위한 선택입니다.
 
-사용자 정의 변환 정책은 `pipeline.Plugin` 인터페이스를 구현한 **플러그인**으로 작성합니다 (예: [plugin/platinum.go](plugin/platinum.go)).
+사용자 정의 변환 정책은 `pipeline.Plugin` 인터페이스를 구현한 **플러그인**으로 작성해 `plugin/` 디렉토리에 둡니다 (파일 하나가 정책 하나).
 플러그인은 `init()`에서 스스로 레지스트리에 등록되고, `base.config.yaml`의 `pipeline.plugin` 키로 사용할 플러그인을 선택합니다 (Quartz의 플러그인 설정과 유사한 방식이며, 하나만 등록된 경우 생략 가능).
 
 플러그인 코드를 작성하지 않아도 내장 **`default` 플러그인**으로 동작합니다. `pipeline.plugin: 'default'`(또는 등록된 플러그인이 없을 때 생략)를 지정하면, `base.config.yaml`의 `pipeline.dateFrom`/`pipeline.mapping`에 yaml로 정의한 규칙을 사용합니다. 규칙을 생략하면 일반 관례(파일명 `YYYY-MM-DD` → frontmatter `date` → `created`, 매핑 없음)로 폴백하며, 규칙 형식은 `base.config.example.yaml`의 주석을 참고하세요. 이 yaml 규칙은 default 플러그인 전용이라서 사용자 플러그인과 함께 지정하면 에러가 됩니다.
@@ -92,7 +92,7 @@ type Plugin interface {
 }
 
 // 플러그인 등록: 파일 하나가 정책 하나, init에서 자가 등록
-func init() { pipeline.Register(platinum{}) }
+func init() { pipeline.Register(myPlugin{}) }
 ```
 
 - `FileLayout`은 Go 시간 레이아웃 문법입니다 (`06`=년, `01`=월, `02`=일, 그 외 문자는 리터럴).
@@ -221,7 +221,7 @@ cd ~/etl-worker && ./etl-worker backup --schedule   # 매시 자동 백업 등�
 
 ```
 main.go                          # 엔트리포인트: 서브커맨드 라우팅, plugin 패키지 blank import 등록
-plugin/                          # 사용자 정의 플러그인 (platinum.go 등, pipeline.Plugin 구현체)
+plugin/                          # 사용자 정의 플러그인 (pipeline.Plugin 구현체)
 internal/
   cli/        # 서브커맨드 진입점 (init.go / migrate.go / backup.go, 실행 흐름 조립)
   config/     # 설정 로드·검증·원자적 저장·아카이빙, .env

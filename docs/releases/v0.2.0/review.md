@@ -5,7 +5,7 @@
 
 ## 산출물
 
-- `pipeline.go`: 변환 정책의 유일한 출처 (D10-변환 규칙의 위치). dailyDateRules(DN_060102 → 060102 → created_date), platinumMapping(Type=Todo, Status=Done), buildPipeline, 커스텀 Transformer nfcTitle(제목 NFC 정규화)
+- `pipeline.go`: 변환 정책의 유일한 출처 (D10-변환 규칙의 위치). dailyDateRules(DN_060102 → 060102 → created_date), 커스텀 매핑 함수(Type=Todo, Status=Done), buildPipeline, 커스텀 Transformer nfcTitle(제목 NFC 정규화)
 - `migrate.go`: FR-2 전체 흐름 조립. 워커 풀 5개, --dry-run 플래그, 실행 내 중복 키 선점(claim), effectiveDate 게이트, state 워터마크
 - `internal/transform`: Transformer 파이프라인과 내장 4종 (표준 라이브러리만 의존)
 - `internal/markdown`: 마크다운 -> 노션 블록 (heading/todo/bullet/paragraph, 2,000자 rune 청킹)

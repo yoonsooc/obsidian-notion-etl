@@ -57,4 +57,4 @@
 ## 검증 상태
 
 - `go build -o etl-worker .` / `gofmt -l .`(출력 없음) / `go vet ./...` / `go test -count=1 ./...` 전체 통과
-- E2E: 실제 Platinum DB(속성 5개)와 Yersona 볼트로 `./etl-worker init` 성공. frontmatter 키(category, docu_type) 정상 수집, 설정 변경 시 아카이빙 동작, 경고의 로그 파일 기록 확인
+- E2E: 실제 노션 DB(속성 5개)와 실볼트로 `./etl-worker init` 성공. frontmatter 키(category, docu_type) 정상 수집, 설정 변경 시 아카이빙 동작, 경고의 로그 파일 기록 확인
