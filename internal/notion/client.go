@@ -68,12 +68,12 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]by
 		case status >= 200 && status < 300:
 			return respBody, nil
 		case status == http.StatusUnauthorized:
-			return nil, fmt.Errorf("notion API unauthorized (401): 통합(integration) 토큰을 확인하라: %s", respBody)
+			return nil, fmt.Errorf("notion API unauthorized (401): check the integration token: %s", respBody)
 		case status == http.StatusNotFound:
-			return nil, fmt.Errorf("notion API not found (404): 데이터베이스 ID와 통합 연결(share) 여부를 확인하라: %s", respBody)
+			return nil, fmt.Errorf("notion API not found (404): check the database ID and the integration connection (share): %s", respBody)
 		case status == http.StatusTooManyRequests:
 			if attempt >= maxRetries429 {
-				return nil, fmt.Errorf("notion API rate limited (429): %d회 재시도 후 실패: %s", maxRetries429, respBody)
+				return nil, fmt.Errorf("notion API rate limited (429): failed after %d retries: %s", maxRetries429, respBody)
 			}
 			if err := sleepContext(ctx, parseRetryAfter(retryAfter)); err != nil {
 				return nil, fmt.Errorf("retry wait: %w", err)

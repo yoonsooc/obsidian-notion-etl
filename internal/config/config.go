@@ -40,6 +40,9 @@ type BaseConfig struct {
 		} `yaml:"db"`
 	} `yaml:"notion"`
 	Pipeline PipelineConfig `yaml:"pipeline,omitempty"`
+	// Lang selects the stdout message language ("en"/"ko"); ETL_LANG overrides
+	// it and empty means English. Errors and log files are always English.
+	Lang string `yaml:"lang,omitempty"`
 }
 
 // PipelineConfig selects the transform plugin and, for the built-in default
@@ -63,7 +66,7 @@ type PipelineConfig struct {
 func LoadBase(path string) (*BaseConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("base 설정 파일 읽기 실패: %w", err)
+		return nil, fmt.Errorf("read base config: %w", err)
 	}
 
 	cfg, err := decodeBase(data)
@@ -83,7 +86,7 @@ func decodeBase(data []byte) (*BaseConfig, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&cfg); err != nil {
-		return nil, fmt.Errorf("base 설정 파싱 실패: %w", err)
+		return nil, fmt.Errorf("parse base config: %w", err)
 	}
 	return &cfg, nil
 }
@@ -116,8 +119,12 @@ func (c *BaseConfig) validate() error {
 	}
 	for _, r := range required {
 		if strings.TrimSpace(r.value) == "" {
-			return fmt.Errorf("필수 설정 %s 값이 비어 있음", r.field)
+			return fmt.Errorf("required config %s is empty", r.field)
 		}
+	}
+
+	if c.Lang != "" && c.Lang != "en" && c.Lang != "ko" {
+		return fmt.Errorf("lang must be \"en\" or \"ko\", got %q", c.Lang)
 	}
 
 	targets := []struct {
@@ -130,29 +137,29 @@ func (c *BaseConfig) validate() error {
 	for _, t := range targets {
 		for _, pattern := range t.value.Exclude {
 			if _, err := path.Match(pattern, "x"); err != nil {
-				return fmt.Errorf("%s.exclude 패턴 %q이 잘못됨: %w", t.field, pattern, err)
+				return fmt.Errorf("invalid %s.exclude pattern %q: %w", t.field, pattern, err)
 			}
 		}
 		if t.value.EffectiveDate == "" {
 			continue
 		}
 		if _, err := time.Parse("2006-01-02", t.value.EffectiveDate); err != nil {
-			return fmt.Errorf("%s.effectiveDate는 2006-01-02 형식이어야 함: %w", t.field, err)
+			return fmt.Errorf("%s.effectiveDate must use the 2006-01-02 layout: %w", t.field, err)
 		}
 	}
 
 	srcDir := c.SourceDir()
 	backupDir := c.BackupDir()
 	if srcDir == backupDir {
-		return fmt.Errorf("toNotion 소스 경로와 fromNotion 백업 경로가 같음(루프 방지): %s", srcDir)
+		return fmt.Errorf("toNotion source and fromNotion backup are the same path (loop guard): %s", srcDir)
 	}
 
 	srcInfo, err := os.Stat(srcDir)
 	if err != nil {
-		return fmt.Errorf("toNotion 소스 디렉토리 확인 실패: %w", err)
+		return fmt.Errorf("stat toNotion source directory: %w", err)
 	}
 	if !srcInfo.IsDir() {
-		return fmt.Errorf("toNotion 소스 경로가 디렉토리가 아님: %s", srcDir)
+		return fmt.Errorf("toNotion source path is not a directory: %s", srcDir)
 	}
 
 	// D3 demands full separation, and equality alone is not enough: a backup
@@ -160,11 +167,11 @@ func (c *BaseConfig) validate() error {
 	// re-migrate as duplicates and the next backup multiplies them. Checked
 	// before MkdirAll so a bad config does not leave a directory behind.
 	if isWithin(backupDir, srcInfo) {
-		return fmt.Errorf("fromNotion 백업 경로가 toNotion 소스 디렉토리 내부에 있음(백업본 재이관 루프 방지): %s 는 %s 하위", backupDir, srcDir)
+		return fmt.Errorf("fromNotion backup path is inside the toNotion source directory (re-migration loop guard): %s is under %s", backupDir, srcDir)
 	}
 
 	if err := os.MkdirAll(backupDir, 0o755); err != nil {
-		return fmt.Errorf("fromNotion 백업 디렉토리 생성 실패: %w", err)
+		return fmt.Errorf("create fromNotion backup directory: %w", err)
 	}
 
 	// macOS filesystems are case-insensitive and Unicode-normalization
@@ -172,16 +179,16 @@ func (c *BaseConfig) validate() error {
 	// directory. Re-check with os.SameFile, which also catches symlink aliases.
 	backupInfo, err := os.Stat(backupDir)
 	if err != nil {
-		return fmt.Errorf("fromNotion 백업 디렉토리 확인 실패: %w", err)
+		return fmt.Errorf("stat fromNotion backup directory: %w", err)
 	}
 	if os.SameFile(srcInfo, backupInfo) {
-		return fmt.Errorf("toNotion 소스 경로와 fromNotion 백업 경로가 같은 디렉토리를 가리킴(루프 방지): %s", srcDir)
+		return fmt.Errorf("toNotion source and fromNotion backup point to the same directory (loop guard): %s", srcDir)
 	}
 	// The reverse nesting: the backup dir is mirror territory (unconditional
 	// overwrites), so the source living inside it is almost certainly a
 	// config mistake.
 	if isWithin(srcDir, backupInfo) {
-		return fmt.Errorf("toNotion 소스 경로가 fromNotion 백업 디렉토리 내부에 있음(미러 덮어쓰기 위험): %s 는 %s 하위", srcDir, backupDir)
+		return fmt.Errorf("toNotion source path is inside the fromNotion backup directory (mirror overwrite risk): %s is under %s", srcDir, backupDir)
 	}
 	return nil
 }

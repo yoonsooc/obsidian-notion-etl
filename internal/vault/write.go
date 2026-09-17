@@ -46,13 +46,13 @@ func (d NoteDraft) Render() string {
 // (temp file + rename) so a mid-write failure never leaves a corrupt note.
 func WriteNote(dir string, draft NoteDraft) error {
 	if draft.FileName == "" {
-		return fmt.Errorf("빈 파일명으로는 노트를 쓸 수 없음")
+		return fmt.Errorf("cannot write a note with an empty file name")
 	}
 	path := filepath.Join(dir, draft.FileName)
 
 	tmp, err := os.CreateTemp(dir, draft.FileName+".tmp-*")
 	if err != nil {
-		return fmt.Errorf("임시 파일 생성 실패: %w", err)
+		return fmt.Errorf("create temp file: %w", err)
 	}
 	tmpPath := tmp.Name()
 
@@ -61,18 +61,18 @@ func WriteNote(dir string, draft NoteDraft) error {
 	if writeErr != nil || closeErr != nil {
 		_ = os.Remove(tmpPath)
 		if writeErr != nil {
-			return fmt.Errorf("노트 쓰기 실패 %s: %w", draft.FileName, writeErr)
+			return fmt.Errorf("write note %s: %w", draft.FileName, writeErr)
 		}
-		return fmt.Errorf("노트 닫기 실패 %s: %w", draft.FileName, closeErr)
+		return fmt.Errorf("close note %s: %w", draft.FileName, closeErr)
 	}
 	// CreateTemp uses 0600; match the usual 0644.
 	if err := os.Chmod(tmpPath, 0o644); err != nil {
 		_ = os.Remove(tmpPath)
-		return fmt.Errorf("노트 권한 설정 실패 %s: %w", draft.FileName, err)
+		return fmt.Errorf("set note permissions %s: %w", draft.FileName, err)
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
 		_ = os.Remove(tmpPath)
-		return fmt.Errorf("노트 저장 실패 %s: %w", draft.FileName, err)
+		return fmt.Errorf("save note %s: %w", draft.FileName, err)
 	}
 	return nil
 }

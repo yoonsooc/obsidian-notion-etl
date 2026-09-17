@@ -25,14 +25,14 @@ type Logger struct {
 func New(name string, now time.Time) (*Logger, error) {
 	dir := filepath.Join("logs", name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("로그 디렉토리 생성 실패: %w", err)
+		return nil, fmt.Errorf("create log directory: %w", err)
 	}
 
 	path := filepath.Join(dir, now.Format("2006-01-02-150405")+".log")
 	// Append mode so a rerun within the same second keeps prior records.
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
-		return nil, fmt.Errorf("로그 파일 생성 실패: %w", err)
+		return nil, fmt.Errorf("create log file: %w", err)
 	}
 
 	return &Logger{
@@ -68,7 +68,7 @@ func (lg *Logger) Wrote() bool {
 // files do not accumulate (removal failure is ignored).
 func (lg *Logger) Close() error {
 	if err := lg.file.Close(); err != nil {
-		return fmt.Errorf("로그 파일 닫기 실패: %w", err)
+		return fmt.Errorf("close log file: %w", err)
 	}
 	if !lg.wrote.Load() {
 		_ = os.Remove(lg.path)

@@ -139,12 +139,12 @@ func ExtractDatabaseID(rawURL string) (string, error) {
 
 	segment := lastPathSegment(parsed.Path)
 	if len(segment) < 32 {
-		return "", fmt.Errorf("notion URL %q: 경로에서 32자리 hex ID를 찾을 수 없다", rawURL)
+		return "", fmt.Errorf("notion URL %q: no 32-char hex ID found in the path", rawURL)
 	}
 
 	candidate := strings.ToLower(segment[len(segment)-32:])
 	if !isHex(candidate) {
-		return "", fmt.Errorf("notion URL %q: 경로 마지막 세그먼트 %q가 32자리 hex ID로 끝나지 않는다", rawURL, segment)
+		return "", fmt.Errorf("notion URL %q: last path segment %q does not end with a 32-char hex ID", rawURL, segment)
 	}
 
 	return candidate[0:8] + "-" + candidate[8:12] + "-" + candidate[12:16] + "-" +

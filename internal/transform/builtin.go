@@ -69,7 +69,7 @@ func (d *dateDeriver) Transform(note Note, draft *PageDraft) error {
 	}
 	draft.Date = ""
 	draft.Warnings = append(draft.Warnings,
-		fmt.Sprintf("dateDeriver: %s에서 날짜를 파생하지 못해 Date를 비움", note.Filename))
+		fmt.Sprintf("dateDeriver: could not derive a date from %s, leaving Date empty", note.Filename))
 	return nil
 }
 
@@ -152,7 +152,7 @@ func (p *propertyMapper) Transform(note Note, draft *PageDraft) error {
 		}
 		if rule.Frontmatter == "" {
 			draft.Warnings = append(draft.Warnings,
-				fmt.Sprintf("propertyMapper: %s 규칙에 value와 frontmatter가 모두 없어 건너뜀",
+				fmt.Sprintf("propertyMapper: rule for %s has neither value nor frontmatter, skipped",
 					rule.NotionProperty))
 			continue
 		}
@@ -160,7 +160,7 @@ func (p *propertyMapper) Transform(note Note, draft *PageDraft) error {
 		resolved, ok := resolveValue(rule, raw)
 		if !ok {
 			draft.Warnings = append(draft.Warnings,
-				fmt.Sprintf("propertyMapper: %s 속성 건너뜀 (frontmatter %q 값 %q 변환 불가, default 없음)",
+				fmt.Sprintf("propertyMapper: property %s skipped (frontmatter %q value %q has no translation and no default)",
 					rule.NotionProperty, rule.Frontmatter, raw))
 			continue
 		}

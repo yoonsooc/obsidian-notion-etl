@@ -73,7 +73,7 @@ func (weeklyStartDate) Transform(note transform.Note, draft *transform.PageDraft
 	start, end := rest[:sep], rest[sep+1:]
 	t, err := time.Parse("060102", start)
 	if err != nil || (len(end) != 4 && len(end) != 6) {
-		draft.Warnings = append(draft.Warnings, "주간 노트 파일명이지만 날짜 파싱 실패: "+note.Filename)
+		draft.Warnings = append(draft.Warnings, "weekly note filename but date parsing failed: "+note.Filename)
 		return nil
 	}
 	draft.Date = t.Format("2006-01-02")

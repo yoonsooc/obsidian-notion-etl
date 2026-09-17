@@ -80,7 +80,7 @@ func TestCronLine(t *testing.T) {
 	if !strings.HasPrefix(line, "30 2 * * * ") {
 		t.Errorf("지정한 크론식으로 시작하지 않음: %q", line)
 	}
-	for _, part := range []string{`cd "/ops/공백 있는 경로"`, `"/ops/etl-worker" backup`, ">> logs/cron.log 2>&1"} {
+	for _, part := range []string{`cd "/ops/공백 있는 경로"`, `ETL_LANG=en "/ops/etl-worker" backup`, ">> logs/cron.log 2>&1"} {
 		if !strings.Contains(line, part) {
 			t.Errorf("cronLine에 %q 누락: %q", part, line)
 		}

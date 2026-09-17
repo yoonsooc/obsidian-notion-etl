@@ -28,7 +28,7 @@ func FromBlocks(blocks []notion.Block) (md string, warnings []string) {
 
 	for i, b := range blocks {
 		if b.HasChildren {
-			warnings = append(warnings, fmt.Sprintf("블록 %d(%s): 중첩 블록은 수집하지 않음(v1), 최상위 텍스트만 백업됨", i, b.Type))
+			warnings = append(warnings, fmt.Sprintf("block %d (%s): nested blocks are not collected (v1), only the top-level text is backed up", i, b.Type))
 		}
 		// The nil guards double as malformed-input protection: a known type
 		// with a missing body drops to the fallback path instead of panicking.
@@ -66,10 +66,10 @@ func FromBlocks(blocks []notion.Block) (md string, warnings []string) {
 		default:
 			text := notion.JoinPlainText(b.Fallback)
 			if text == "" {
-				warnings = append(warnings, fmt.Sprintf("블록 %d(%s): 텍스트를 추출할 수 없어 건너뜀", i, b.Type))
+				warnings = append(warnings, fmt.Sprintf("block %d (%s): no extractable text, skipped", i, b.Type))
 				continue
 			}
-			warnings = append(warnings, fmt.Sprintf("블록 %d(%s): 미지원 타입, 일반 문단으로 폴백", i, b.Type))
+			warnings = append(warnings, fmt.Sprintf("block %d (%s): unsupported type, falling back to a plain paragraph", i, b.Type))
 			emit(text, false)
 		}
 	}

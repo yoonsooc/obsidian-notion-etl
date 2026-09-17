@@ -85,7 +85,7 @@ func RunMigrate(args []string) (err error) {
 	dryRun := false
 	for _, a := range args {
 		if a != "--dry-run" {
-			return fmt.Errorf("migrate: 알 수 없는 인자: %s", a)
+			return fmt.Errorf("migrate: unknown argument: %s (see etl-worker help)", a)
 		}
 		dryRun = true
 	}
@@ -94,11 +94,12 @@ func RunMigrate(args []string) (err error) {
 	if err != nil {
 		return err
 	}
+	p := NewPrinter("")
 	summaryPrinted := false
 	defer func() {
 		// Skip the log path hint if the summary already printed it.
 		if err != nil && logger.Wrote() && !summaryPrinted {
-			fmt.Fprintf(os.Stderr, "상세 로그: %s\n", logger.Path())
+			p.Fprintf(os.Stderr, "Details: %s\n", logger.Path())
 		}
 		_ = logger.Close()
 	}()
@@ -116,8 +117,9 @@ func RunMigrate(args []string) (err error) {
 		return err
 	}
 	if latest == nil || latest.Notion.DataSourceID == "" {
-		return errors.New("검증된 설정이 없음: 먼저 'etl-worker init'을 실행하세요")
+		return errors.New("no validated config: run 'etl-worker init' first")
 	}
+	p = NewPrinter(base.Lang)
 
 	env, err := newMigrateEnv(token, base, latest, logger, dryRun)
 	if err != nil {
@@ -127,7 +129,7 @@ func RunMigrate(args []string) (err error) {
 	toNotion := base.Obsidian.Vault.ToNotion
 	notes, err := vault.CollectNotes(base.SourceDir(), toNotion.Exclude, logger)
 	if err != nil {
-		return fmt.Errorf("소스 디렉토리 스캔 실패: %w", err)
+		return fmt.Errorf("scan source directory: %w", err)
 	}
 
 	var stats migrateStats
@@ -159,16 +161,16 @@ func RunMigrate(args []string) (err error) {
 
 	mode := ""
 	if dryRun {
-		mode = " (dry-run: 실제 생성 없음)"
+		mode = p.Sprintf(" (dry-run: no pages created)")
 	}
-	fmt.Printf("마이그레이션 완료%s: 대상 %d건 중 이관 %d, 중복 스킵 %d, 날짜 게이트 스킵 %d, 실패 %d\n",
+	p.Printf("Migration complete%s: %d targets, %d migrated, %d duplicate skips, %d date-gate skips, %d failed\n",
 		mode, len(notes), stats.migrated, stats.skippedDup, stats.skippedGate, stats.failed)
 	if logger.Wrote() {
-		fmt.Printf("상세 로그: %s\n", logger.Path())
+		p.Printf("Details: %s\n", logger.Path())
 		summaryPrinted = true
 	}
 	if stats.failed > 0 {
-		return fmt.Errorf("%d건 실패 (상세는 로그 참조)", stats.failed)
+		return fmt.Errorf("%d items failed (see the log)", stats.failed)
 	}
 	return nil
 }
@@ -200,14 +202,14 @@ func newMigrateEnv(token string, base *config.BaseConfig, latest *config.LatestC
 		}
 	}
 	if env.titleProp == "" {
-		return nil, errors.New("노션 스키마에 title 속성이 없음: init을 다시 실행하세요")
+		return nil, errors.New("no title property in the Notion schema: run init again")
 	}
 
 	toNotion := base.Obsidian.Vault.ToNotion
 	if toNotion.EffectiveDate != "" {
 		effective, err := time.Parse("2006-01-02", toNotion.EffectiveDate)
 		if err != nil {
-			return nil, fmt.Errorf("effectiveDate 해석 실패: %w", err)
+			return nil, fmt.Errorf("parse effectiveDate: %w", err)
 		}
 		env.effectiveDate = effective
 	}
@@ -233,7 +235,7 @@ func (env *migrateEnv) processNote(ctx context.Context, note vault.Note) string 
 		Body:        note.Body,
 	}, env.chain)
 	if err != nil {
-		env.logger.Warnf("변환 실패 %s: %v", note.RelPath, err)
+		env.logger.Warnf("transform failed %s: %v", note.RelPath, err)
 		return "failed"
 	}
 	for _, w := range draft.Warnings {
@@ -245,11 +247,11 @@ func (env *migrateEnv) processNote(ctx context.Context, note vault.Note) string 
 	if draft.Date != "" && !env.effectiveDate.IsZero() {
 		d, err := time.Parse("2006-01-02", draft.Date)
 		if err != nil {
-			env.logger.Warnf("파생 날짜 해석 실패 %s (%q): %v", note.RelPath, draft.Date, err)
+			env.logger.Warnf("parse derived date %s (%q): %v", note.RelPath, draft.Date, err)
 			return "failed"
 		}
 		if d.Before(env.effectiveDate) {
-			env.logger.Infof("게이트 스킵 %s: 날짜 %s가 effectiveDate 이전", note.RelPath, draft.Date)
+			env.logger.Infof("date-gate skip %s: date %s is before effectiveDate", note.RelPath, draft.Date)
 			return "skippedGate"
 		}
 	}
@@ -260,16 +262,16 @@ func (env *migrateEnv) processNote(ctx context.Context, note vault.Note) string 
 	// first to block the check-then-create race between workers, then query.
 	dupKey := "title:" + draft.Title
 	if !env.claim(dupKey) {
-		env.logger.Infof("중복 스킵 %s: 이번 실행의 다른 노트와 %s 겹침", note.RelPath, dupKey)
+		env.logger.Infof("duplicate skip %s: clashes with another note in this run (%s)", note.RelPath, dupKey)
 		return "skippedDup"
 	}
 	exists, err := env.client.ExistsByTitle(ctx, env.dataSourceID, env.titleProp, draft.Title)
 	if err != nil {
-		env.logger.Warnf("중복 검사 실패 %s: %v", note.RelPath, err)
+		env.logger.Warnf("duplicate check failed %s: %v", note.RelPath, err)
 		return "failed"
 	}
 	if exists {
-		env.logger.Infof("중복 스킵 %s", note.RelPath)
+		env.logger.Infof("duplicate skip %s", note.RelPath)
 		return "skippedDup"
 	}
 
@@ -277,7 +279,7 @@ func (env *migrateEnv) processNote(ctx context.Context, note vault.Note) string 
 	blocks := markdown.ToBlocks(note.Body, env.vaultName)
 
 	if env.dryRun {
-		env.logger.Infof("[dry-run] 생성 예정 %s: 제목 %q, 날짜 %q, 블록 %d개, 속성 %d개",
+		env.logger.Infof("[dry-run] would create %s: title %q, date %q, %d blocks, %d properties",
 			note.RelPath, draft.Title, draft.Date, len(blocks), len(properties))
 		return "migrated"
 	}
@@ -286,10 +288,10 @@ func (env *migrateEnv) processNote(ctx context.Context, note vault.Note) string 
 	if err != nil {
 		// On partial creation (page created, block append failed) the page ID
 		// and cleanup hint are already part of CreatePage's error message.
-		env.logger.Warnf("생성 실패 %s: %v", note.RelPath, err)
+		env.logger.Warnf("create failed %s: %v", note.RelPath, err)
 		return "failed"
 	}
-	env.logger.Infof("이관 완료 %s -> %s", note.RelPath, pageID)
+	env.logger.Infof("migrated %s -> %s", note.RelPath, pageID)
 	return "migrated"
 }
 
@@ -309,7 +311,7 @@ func (env *migrateEnv) buildProperties(draft *transform.PageDraft, relPath strin
 		propType, ok := env.typeByName[name]
 		if !ok {
 			// Defensive: should not happen once init validation passed.
-			env.logger.Warnf("%s: 노션 속성 %q의 타입을 알 수 없어 속성을 건너뜀", relPath, name)
+			env.logger.Warnf("%s: unknown type for Notion property %q, skipped", relPath, name)
 			continue
 		}
 		properties[name] = notion.PropertyValue{Type: propType, Value: value}

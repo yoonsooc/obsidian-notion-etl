@@ -72,7 +72,7 @@ func Select(cfg config.PipelineConfig) (Plugin, error) {
 		return nil, err
 	}
 	if len(cfg.DateFrom) > 0 || len(cfg.Mapping) > 0 {
-		return nil, fmt.Errorf("pipeline.dateFrom/mapping은 default 플러그인 전용입니다: plugin을 %q 대신 %q로 지정하거나 규칙을 제거하세요", p.Name(), DefaultName)
+		return nil, fmt.Errorf("pipeline.dateFrom/mapping are for the default plugin only: replace plugin %q with %q, or remove the rules", p.Name(), DefaultName)
 	}
 	return p, nil
 }
@@ -86,11 +86,11 @@ func lookup(name string) (Plugin, error) {
 				return p, nil
 			}
 		}
-		return nil, fmt.Errorf("pipeline.plugin 미지정: 등록된 플러그인 %s 중 하나 또는 %q를 base.config.yaml에 지정하세요", registeredNames(), DefaultName)
+		return nil, fmt.Errorf("pipeline.plugin not set: choose one of the registered plugins %s or %q in base.config.yaml", registeredNames(), DefaultName)
 	}
 	p, ok := registry[name]
 	if !ok {
-		return nil, fmt.Errorf("알 수 없는 플러그인 %q: 등록된 플러그인은 %s", name, registeredNames())
+		return nil, fmt.Errorf("unknown plugin %q: registered plugins are %s", name, registeredNames())
 	}
 	return p, nil
 }

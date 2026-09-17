@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/text/message"
+
 	"github.com/yoonsooc/obsidian-notion-etl/internal/config"
 	"github.com/yoonsooc/obsidian-notion-etl/internal/logging"
 	"github.com/yoonsooc/obsidian-notion-etl/internal/markdown"
@@ -26,7 +28,7 @@ func RunBackup(args []string) (err error) {
 	cronSpec := defaultCronSpec
 	setMode := func(mode string) error {
 		if scheduleMode != "" {
-			return fmt.Errorf("backup: --%s와 --%s는 함께 쓸 수 없습니다", scheduleMode, mode)
+			return fmt.Errorf("backup: --%s and --%s cannot be combined", scheduleMode, mode)
 		}
 		scheduleMode = mode
 		return nil
@@ -53,12 +55,12 @@ func RunBackup(args []string) (err error) {
 				return err
 			}
 		default:
-			return fmt.Errorf("backup: 알 수 없는 인자: %s (etl-worker help 참조)", a)
+			return fmt.Errorf("backup: unknown argument: %s (see etl-worker help)", a)
 		}
 	}
 	if scheduleMode != "" {
 		if dryRun {
-			return fmt.Errorf("backup: --dry-run은 --%s와 함께 쓸 수 없습니다", scheduleMode)
+			return fmt.Errorf("backup: --dry-run cannot be combined with --%s", scheduleMode)
 		}
 		return runSchedule(scheduleMode, cronSpec)
 	}
@@ -67,10 +69,11 @@ func RunBackup(args []string) (err error) {
 	if err != nil {
 		return err
 	}
+	p := NewPrinter("")
 	summaryPrinted := false
 	defer func() {
 		if err != nil && logger.Wrote() && !summaryPrinted {
-			fmt.Fprintf(os.Stderr, "상세 로그: %s\n", logger.Path())
+			p.Fprintf(os.Stderr, "Details: %s\n", logger.Path())
 		}
 		_ = logger.Close()
 	}()
@@ -88,8 +91,9 @@ func RunBackup(args []string) (err error) {
 		return err
 	}
 	if latest == nil || latest.Notion.DataSourceID == "" {
-		return errors.New("검증된 설정이 없음: 먼저 'etl-worker init'을 실행하세요")
+		return errors.New("no validated config: run 'etl-worker init' first")
 	}
+	p = NewPrinter(base.Lang)
 
 	titleProp, dateProp := "", ""
 	for _, p := range latest.Notion.Properties {
@@ -111,7 +115,7 @@ func RunBackup(args []string) (err error) {
 
 	pages, err := client.QueryPagesSince(ctx, latest.Notion.DataSourceID, watermark, titleProp, dateProp)
 	if err != nil {
-		return fmt.Errorf("증분 조회 실패: %w", err)
+		return fmt.Errorf("incremental query: %w", err)
 	}
 
 	written, failed := 0, 0
@@ -120,21 +124,21 @@ func RunBackup(args []string) (err error) {
 		fileName := backupFileName(page, usedNames)
 		draft, buildErr := buildNoteDraft(ctx, client, page, fileName, logger)
 		if buildErr != nil {
-			logger.Warnf("backup: %s(%s) 실패: %v", fileName, page.ID, buildErr)
+			logger.Warnf("backup: %s (%s) failed: %v", fileName, page.ID, buildErr)
 			failed++
 			continue
 		}
 		if dryRun {
-			logger.Infof("backup(dry-run): %s <- 페이지 %s (last_edited %s)", fileName, page.ID, page.LastEditedTime)
+			logger.Infof("backup (dry-run): %s <- page %s (last_edited %s)", fileName, page.ID, page.LastEditedTime)
 			written++
 			continue
 		}
 		if writeErr := vault.WriteNote(backupDir, *draft); writeErr != nil {
-			logger.Warnf("backup: %s(%s) 실패: %v", fileName, page.ID, writeErr)
+			logger.Warnf("backup: %s (%s) failed: %v", fileName, page.ID, writeErr)
 			failed++
 			continue
 		}
-		logger.Infof("backup: %s <- 페이지 %s", fileName, page.ID)
+		logger.Infof("backup: %s <- page %s", fileName, page.ID)
 		written++
 	}
 
@@ -148,16 +152,16 @@ func RunBackup(args []string) (err error) {
 
 	mode := ""
 	if dryRun {
-		mode = " (dry-run: 실제 쓰기 없음)"
+		mode = p.Sprintf(" (dry-run: nothing written)")
 	}
-	fmt.Printf("백업 완료%s: 대상 %d건 중 백업 %d, 실패 %d (워터마크: %s)\n",
-		mode, len(pages), written, failed, watermarkLabel(watermark))
+	p.Printf("Backup complete%s: %d targets, %d backed up, %d failed (watermark: %s)\n",
+		mode, len(pages), written, failed, watermarkLabel(p, watermark))
 	if logger.Wrote() {
-		fmt.Printf("상세 로그: %s\n", logger.Path())
+		p.Printf("Details: %s\n", logger.Path())
 		summaryPrinted = true
 	}
 	if failed > 0 {
-		return fmt.Errorf("%d건 실패: 워터마크를 갱신하지 않았으므로 다음 실행에서 재시도됨 (상세는 로그 참조)", failed)
+		return fmt.Errorf("%d items failed; the watermark was not advanced, so the next run retries (see the log)", failed)
 	}
 	return nil
 }
@@ -166,7 +170,7 @@ func RunBackup(args []string) (err error) {
 func buildNoteDraft(ctx context.Context, client *notion.Client, page notion.Page, fileName string, logger *logging.Logger) (*vault.NoteDraft, error) {
 	blocks, err := client.ListBlockChildren(ctx, page.ID)
 	if err != nil {
-		return nil, fmt.Errorf("블록 수집 실패: %w", err)
+		return nil, fmt.Errorf("collect blocks: %w", err)
 	}
 	body, warnings := markdown.FromBlocks(blocks)
 	for _, w := range warnings {
@@ -209,9 +213,9 @@ func backupFileName(page notion.Page, used map[string]int) string {
 }
 
 // watermarkLabel renders the previous watermark for the summary line.
-func watermarkLabel(watermark string) string {
+func watermarkLabel(p *message.Printer, watermark string) string {
 	if watermark == "" {
-		return "없음(전체 백업)"
+		return p.Sprintf("none (full backup)")
 	}
-	return watermark + " 이후"
+	return p.Sprintf("since %s", watermark)
 }

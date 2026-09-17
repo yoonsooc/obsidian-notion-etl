@@ -65,7 +65,7 @@ func TestLoadBaseSameDirGuard(t *testing.T) {
 	if err == nil {
 		t.Fatal("같은 디렉토리를 가리키는 설정이 가드를 통과함")
 	}
-	if !strings.Contains(err.Error(), "루프 방지") {
+	if !strings.Contains(err.Error(), "loop guard") {
 		t.Errorf("루프 방지 에러를 기대했지만 %v를 받음", err)
 	}
 }
@@ -107,21 +107,21 @@ func TestLoadBase(t *testing.T) {
 			mutate: func(cfg *BaseConfig) {
 				cfg.Obsidian.Vault.FromNotion.Target = cfg.Obsidian.Vault.ToNotion.Target
 			},
-			wantErr: "루프 방지",
+			wantErr: "loop guard",
 		},
 		{
 			name: "소스와 백업 경로가 Clean 후 동일",
 			mutate: func(cfg *BaseConfig) {
 				cfg.Obsidian.Vault.FromNotion.Target = "./" + cfg.Obsidian.Vault.ToNotion.Target + "/."
 			},
-			wantErr: "루프 방지",
+			wantErr: "loop guard",
 		},
 		{
 			name: "백업 디렉토리가 소스 내부",
 			mutate: func(cfg *BaseConfig) {
 				cfg.Obsidian.Vault.FromNotion.Target = cfg.Obsidian.Vault.ToNotion.Target + "/NotionBackup"
 			},
-			wantErr: "재이관 루프",
+			wantErr: "re-migration loop",
 		},
 		{
 			name: "소스 디렉토리가 백업 내부",
@@ -129,14 +129,14 @@ func TestLoadBase(t *testing.T) {
 				// Backup at the vault root contains the source subdirectory.
 				cfg.Obsidian.Vault.FromNotion.Target = "."
 			},
-			wantErr: "미러 덮어쓰기",
+			wantErr: "mirror overwrite",
 		},
 		{
 			name: "소스 디렉토리 없음",
 			mutate: func(cfg *BaseConfig) {
 				cfg.Obsidian.Vault.ToNotion.Target = "no-such-dir"
 			},
-			wantErr: "소스 디렉토리",
+			wantErr: "source directory",
 		},
 	}
 

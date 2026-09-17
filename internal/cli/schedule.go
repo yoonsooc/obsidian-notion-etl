@@ -22,6 +22,9 @@ const defaultCronSpec = "0 * * * *"
 // delegated to the user's crontab (D17 — no resident daemon mode, consistent
 // with FR-3 and D16).
 func runSchedule(mode, spec string) error {
+	// The schedule flags run without loading the config (they only manage the
+	// crontab), so only ETL_LANG selects the language here.
+	p := NewPrinter("")
 	current, err := readCrontab()
 	if err != nil {
 		return err
@@ -31,10 +34,10 @@ func runSchedule(mode, spec string) error {
 	switch mode {
 	case "status":
 		if !registered {
-			fmt.Println("자동 백업 미등록: crontab에 etl-worker backup 엔트리가 없습니다 (등록: backup --schedule)")
+			p.Printf("Automatic backup is not registered: no etl-worker backup entry in crontab (register with: backup --schedule)\n")
 			return nil
 		}
-		fmt.Printf("자동 백업 등록됨:\n  %s\n", line)
+		p.Printf("Automatic backup is registered:\n  %s\n", line)
 		return nil
 
 	case "schedule":
@@ -42,44 +45,46 @@ func runSchedule(mode, spec string) error {
 			return fmt.Errorf("backup --schedule: %w", err)
 		}
 		if registered {
-			fmt.Printf("이미 등록되어 있습니다:\n  %s\n크론식을 바꾸려면 --unschedule 후 --schedule=\"<크론식>\"으로 재등록하세요\n", line)
+			p.Printf("Already registered:\n  %s\nTo change the cron spec, run --unschedule and then --schedule=\"<cron>\"\n", line)
 			return nil
 		}
 		workDir, err := os.Getwd()
 		if err != nil {
-			return fmt.Errorf("작업 디렉토리 확인 실패: %w", err)
+			return fmt.Errorf("get working directory: %w", err)
 		}
 		exePath, err := os.Executable()
 		if err != nil {
-			return fmt.Errorf("실행 파일 경로 확인 실패: %w", err)
+			return fmt.Errorf("get executable path: %w", err)
 		}
 		entry := cronLine(spec, workDir, exePath)
 		if err := writeCrontab(addBackupEntry(current, entry)); err != nil {
 			return err
 		}
-		fmt.Printf("자동 백업을 등록했습니다 (크론식 %q):\n  %s\n", spec, entry)
+		p.Printf("Registered automatic backup (cron spec %q):\n  %s\n", spec, entry)
 		return nil
 
 	case "unschedule":
 		if !registered {
-			fmt.Println("등록된 etl-worker backup 엔트리가 없습니다")
+			p.Printf("No etl-worker backup entry is registered\n")
 			return nil
 		}
 		next, _ := removeBackupEntry(current)
 		if err := writeCrontab(next); err != nil {
 			return err
 		}
-		fmt.Printf("자동 백업을 해제했습니다 (제거된 라인):\n  %s\n", line)
+		p.Printf("Removed automatic backup (deleted line):\n  %s\n", line)
 		return nil
 	}
-	return fmt.Errorf("알 수 없는 스케줄 모드: %s", mode)
+	return fmt.Errorf("unknown schedule mode: %s", mode)
 }
 
 // cronLine builds the crontab entry from a validated time spec. Both paths
 // are absolute and quoted: cd makes the relative config/log paths resolve,
-// and the executable path survives PATH-less cron environments.
+// and the executable path survives PATH-less cron environments. ETL_LANG=en
+// pins the summary appended to cron.log to English even when the config
+// selects Korean for interactive runs (logs are always English, D18).
 func cronLine(spec, workDir, exePath string) string {
-	return fmt.Sprintf(`%s cd "%s" && "%s" backup >> logs/cron.log 2>&1`, spec, workDir, exePath)
+	return fmt.Sprintf(`%s cd "%s" && ETL_LANG=en "%s" backup >> logs/cron.log 2>&1`, spec, workDir, exePath)
 }
 
 // validateCronSpec checks a 5-field crontab time spec (minute, hour, day of
@@ -88,12 +93,12 @@ func cronLine(spec, workDir, exePath string) string {
 func validateCronSpec(spec string) error {
 	fields := strings.Fields(spec)
 	if len(fields) != 5 {
-		return fmt.Errorf("크론식은 5개 필드(분 시 일 월 요일)여야 합니다: %q (예: \"0 * * * *\")", spec)
+		return fmt.Errorf("cron spec must have 5 fields (minute hour day month weekday): %q (e.g. \"0 * * * *\")", spec)
 	}
 	for _, field := range fields {
 		for _, r := range field {
 			if !strings.ContainsRune("0123456789*/,-", r) {
-				return fmt.Errorf("크론식 필드 %q에 허용되지 않는 문자 %q", field, r)
+				return fmt.Errorf("cron spec field %q contains a disallowed character %q", field, r)
 			}
 		}
 	}
@@ -155,7 +160,7 @@ func readCrontab() (string, error) {
 		if strings.Contains(string(output), "no crontab") {
 			return "", nil
 		}
-		return "", fmt.Errorf("crontab 읽기 실패: %w: %s", err, strings.TrimSpace(string(output)))
+		return "", fmt.Errorf("read crontab: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return string(output), nil
 }
@@ -166,7 +171,7 @@ func writeCrontab(content string) error {
 	cmd := exec.Command("crontab", "-")
 	cmd.Stdin = strings.NewReader(content)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("crontab 쓰기 실패 (macOS에서는 터미널에서 실행해야 할 수 있음): %w: %s", err, strings.TrimSpace(string(output)))
+		return fmt.Errorf("write crontab (on macOS this may need to run from a terminal): %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return nil
 }

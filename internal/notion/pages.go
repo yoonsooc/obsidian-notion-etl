@@ -59,7 +59,7 @@ func buildPropertyPayload(pv PropertyValue) (propertyPayload, error) {
 	case "rich_text":
 		return propertyPayload{RichText: []propertyRichText{{Text: Text{Content: pv.Value}}}}, nil
 	default:
-		return propertyPayload{}, fmt.Errorf("지원하지 않는 속성 타입 %q", pv.Type)
+		return propertyPayload{}, fmt.Errorf("unsupported property type %q", pv.Type)
 	}
 }
 
@@ -176,7 +176,7 @@ func (c *Client) CreatePage(ctx context.Context, dataSourceID string, properties
 	}
 
 	if err := c.AppendBlocks(ctx, resp.ID, rest); err != nil {
-		return resp.ID, fmt.Errorf("페이지 %s가 부분 생성됨(블록 append 실패, 수동 정리 필요): %w", resp.ID, err)
+		return resp.ID, fmt.Errorf("page %s partially created (block append failed, needs manual cleanup): %w", resp.ID, err)
 	}
 	return resp.ID, nil
 }

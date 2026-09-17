@@ -45,7 +45,7 @@ func TestValidateMapping(t *testing.T) {
 			mapping: []MappingEntry{
 				{NotionProperty: "Tags", Frontmatter: "tags"},
 			},
-			wantErr: "지원하지 않음",
+			wantErr: "not supported in v1",
 		},
 		{
 			name: "values와 default를 동반한 frontmatter 매핑 정상",
@@ -58,49 +58,49 @@ func TestValidateMapping(t *testing.T) {
 			mapping: []MappingEntry{
 				{NotionProperty: "type", Value: "Todo"},
 			},
-			wantWarnings: []string{"대소문자"},
+			wantWarnings: []string{"letter case"},
 		},
 		{
 			name: "존재하지 않는 속성",
 			mapping: []MappingEntry{
 				{NotionProperty: "Nope", Value: "x"},
 			},
-			wantErr: "데이터베이스에 없음",
+			wantErr: "not found in the database",
 		},
 		{
 			name: "notionProperty 비어 있음",
 			mapping: []MappingEntry{
 				{NotionProperty: "  ", Value: "x"},
 			},
-			wantErr: "notionProperty가 비어 있음",
+			wantErr: "notionProperty is empty",
 		},
 		{
 			name: "value와 frontmatter 동시 설정",
 			mapping: []MappingEntry{
 				{NotionProperty: "Type", Value: "Todo", Frontmatter: "type"},
 			},
-			wantErr: "동시에 설정할 수 없음",
+			wantErr: "cannot both be set",
 		},
 		{
 			name: "value와 frontmatter 둘 다 없음",
 			mapping: []MappingEntry{
 				{NotionProperty: "Type"},
 			},
-			wantErr: "하나는 설정해야 함",
+			wantErr: "one of value or frontmatter",
 		},
 		{
 			name: "value에 values 동반",
 			mapping: []MappingEntry{
 				{NotionProperty: "Type", Value: "Todo", Values: map[string]string{"a": "b"}},
 			},
-			wantErr: "values/default는 비어야 함",
+			wantErr: "values/default must be empty",
 		},
 		{
 			name: "value에 default 동반",
 			mapping: []MappingEntry{
 				{NotionProperty: "Type", Value: "Todo", Default: "x"},
 			},
-			wantErr: "values/default는 비어야 함",
+			wantErr: "values/default must be empty",
 		},
 		{
 			name: "중복 속성은 경고 후 뒤 엔트리 무시",
@@ -108,7 +108,7 @@ func TestValidateMapping(t *testing.T) {
 				{NotionProperty: "Type", Value: "Todo"},
 				{NotionProperty: "Type", Value: "Done"},
 			},
-			wantWarnings: []string{"중복"},
+			wantWarnings: []string{"duplicates"},
 		},
 		{
 			name: "대소문자만 다른 중복도 잡음",
@@ -116,28 +116,28 @@ func TestValidateMapping(t *testing.T) {
 				{NotionProperty: "Type", Value: "Todo"},
 				{NotionProperty: "type", Value: "Done"},
 			},
-			wantWarnings: []string{"대소문자", "중복"},
+			wantWarnings: []string{"letter case", "duplicates"},
 		},
 		{
 			name: "title 타입 속성 매핑 금지",
 			mapping: []MappingEntry{
 				{NotionProperty: "Name", Frontmatter: "title"},
 			},
-			wantErr: "title 타입",
+			wantErr: "title property",
 		},
 		{
 			name: "date 타입 속성 매핑 금지",
 			mapping: []MappingEntry{
 				{NotionProperty: "Date", Frontmatter: "date"},
 			},
-			wantErr: "date 타입",
+			wantErr: "date property",
 		},
 		{
 			name: "url 타입 속성 매핑 금지",
 			mapping: []MappingEntry{
 				{NotionProperty: "Link", Frontmatter: "link"},
 			},
-			wantErr: "url 타입",
+			wantErr: "url property",
 		},
 	}
 
@@ -186,19 +186,19 @@ func TestValidateDateRules(t *testing.T) {
 		{
 			name:    "두 필드 동시 설정",
 			rules:   []DateRule{{FileLayout: "DN_060102", FrontmatterKey: "created_date"}},
-			wantErr: "정확히 하나만 설정",
+			wantErr: "exactly one of fileLayout",
 		},
 		{
 			name:    "두 필드 모두 없음",
 			rules:   []DateRule{{}},
-			wantErr: "정확히 하나만 설정",
+			wantErr: "exactly one of fileLayout",
 		},
 		{
 			name: "왕복 불가능한 레이아웃",
 			// "12" formats but cannot be parsed back: the month consumes
 			// both digits, leaving nothing for the day.
 			rules:   []DateRule{{FileLayout: "12"}},
-			wantErr: "유효한 시간 레이아웃이 아님",
+			wantErr: "not a valid time layout",
 		},
 		{
 			name:    "에러 메시지에 field 경로가 포함됨",

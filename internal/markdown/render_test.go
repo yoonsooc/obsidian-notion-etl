@@ -73,7 +73,7 @@ func TestFromBlocksNestedWarning(t *testing.T) {
 	if md != "- 부모" {
 		t.Errorf("FromBlocks() = %q, want %q", md, "- 부모")
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "중첩") {
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "nested") {
 		t.Errorf("warnings = %v, want nested-children warning", warnings)
 	}
 }

@@ -20,6 +20,7 @@ notion:
     name: 'MyDatabase'
 pipeline:
   plugin: 'MyPlugin'                             # 사용할 변환 플러그인. 생략 시: 등록된 플러그인이 하나면 그것, 없으면 내장 'default'
+# lang: 'ko'                                     # stdout 메시지 언어(en/ko, 생략 시 en). 환경변수 ETL_LANG이 우선. 로그·에러는 항상 영어
   # 아래 규칙들은 내장 'default' 플러그인 전용입니다 (코드 수정 없이 yaml로 규칙 정의).
   # 생략하면 일반 관례로 폴백: 파일명 'YYYY-MM-DD' -> frontmatter 'date' -> 'created', 매핑 없음.
   # dateFrom:                                    # 날짜 파생 체인 (위에서부터 시도)

@@ -14,7 +14,7 @@ const notionTokenKey = "NOTION_TOKEN"
 func LoadNotionToken(envPath string) (string, error) {
 	data, err := os.ReadFile(envPath)
 	if err != nil {
-		return "", fmt.Errorf(".env 파일 읽기 실패: %w", err)
+		return "", fmt.Errorf("read env file: %w", err)
 	}
 
 	for line := range strings.SplitSeq(string(data), "\n") {
@@ -28,11 +28,11 @@ func LoadNotionToken(envPath string) (string, error) {
 		}
 		value = trimQuotes(strings.TrimSpace(value))
 		if value == "" {
-			return "", fmt.Errorf("%s에서 %s 값이 비어 있음", envPath, notionTokenKey)
+			return "", fmt.Errorf("%s: %s value is empty", envPath, notionTokenKey)
 		}
 		return value, nil
 	}
-	return "", fmt.Errorf("%s에 %s 키가 없음", envPath, notionTokenKey)
+	return "", fmt.Errorf("%s: %s key not found", envPath, notionTokenKey)
 }
 
 // trimQuotes removes one matching pair of surrounding quotes.

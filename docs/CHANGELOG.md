@@ -4,6 +4,13 @@
 설계 결정(D번호)의 원문은 [PRD](PRD.md)의 Decision Log(D1~D16, 동결)와
 [decisions/](decisions/)(D17~)에 있습니다. 버전은 git 태그와 일치합니다.
 
+## v1.2.0 — 2026-09-16 · 출력 언어 정책 ([상세](releases/v1.2.0.md))
+
+- 에러·로그·변환 경고를 영어 단일 정본으로 전환 (D18, 가이드 Q6 확정)
+- stdout 요약·안내만 x/text/message로 지역화: base.config.yaml `lang: 'ko'` 또는
+  `ETL_LANG=ko`(설정보다 우선), 미지정 시 영어
+- `--schedule` 생성 cron 라인에 `ETL_LANG=en` 고정 — cron.log는 항상 영어
+
 ## v1.1.0 — 2026-09-16 · help 명령과 backup 스케줄 관리 ([상세](releases/v1.1.0.md))
 
 - `etl-worker help` (-h/--help): 명령·플래그·대표 흐름을 안내하는 전역 도움말

@@ -48,12 +48,12 @@ func LoadLatest(path string) (*LatestConfig, error) {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("latest 설정 파일 읽기 실패: %w", err)
+		return nil, fmt.Errorf("read latest config: %w", err)
 	}
 
 	var cfg LatestConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("latest 설정 파싱 실패: %w", err)
+		return nil, fmt.Errorf("parse latest config: %w", err)
 	}
 	return &cfg, nil
 }
@@ -65,7 +65,7 @@ func LoadLatest(path string) (*LatestConfig, error) {
 // (temp file + rename), so a mid-write failure leaves the old file intact.
 func SaveLatest(path, backupDir string, cfg *LatestConfig, now time.Time) (archived bool, err error) {
 	if cfg == nil {
-		return false, errors.New("저장할 latest 설정이 nil")
+		return false, errors.New("latest config to save is nil")
 	}
 
 	prev, err := LoadLatest(path)
@@ -88,10 +88,10 @@ func SaveLatest(path, backupDir string, cfg *LatestConfig, now time.Time) (archi
 	cfg.GeneratedAt = now.Format(time.RFC3339)
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
-		return archived, fmt.Errorf("latest 설정 마샬링 실패: %w", err)
+		return archived, fmt.Errorf("marshal latest config: %w", err)
 	}
 	if err := writeFileAtomic(path, data); err != nil {
-		return archived, fmt.Errorf("latest 설정 저장 실패: %w", err)
+		return archived, fmt.Errorf("save latest config: %w", err)
 	}
 	return archived, nil
 }
@@ -103,11 +103,11 @@ func SaveLatest(path, backupDir string, cfg *LatestConfig, now time.Time) (archi
 func writeFileAtomic(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("설정 디렉토리 생성 실패: %w", err)
+		return fmt.Errorf("create config directory: %w", err)
 	}
 	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
 	if err != nil {
-		return fmt.Errorf("임시 파일 생성 실패: %w", err)
+		return fmt.Errorf("create temp file: %w", err)
 	}
 	tmpPath := tmp.Name()
 
@@ -116,19 +116,19 @@ func writeFileAtomic(path string, data []byte) error {
 	if writeErr != nil || closeErr != nil {
 		_ = os.Remove(tmpPath)
 		if writeErr != nil {
-			return fmt.Errorf("임시 파일 쓰기 실패: %w", writeErr)
+			return fmt.Errorf("write temp file: %w", writeErr)
 		}
-		return fmt.Errorf("임시 파일 닫기 실패: %w", closeErr)
+		return fmt.Errorf("close temp file: %w", closeErr)
 	}
 
 	// CreateTemp uses 0600; match the usual 0644.
 	if err := os.Chmod(tmpPath, 0o644); err != nil {
 		_ = os.Remove(tmpPath)
-		return fmt.Errorf("임시 파일 권한 설정 실패: %w", err)
+		return fmt.Errorf("set temp file permissions: %w", err)
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
 		_ = os.Remove(tmpPath)
-		return fmt.Errorf("파일 교체 실패: %w", err)
+		return fmt.Errorf("replace file: %w", err)
 	}
 	return nil
 }
@@ -143,11 +143,11 @@ func differsExceptState(a, b *LatestConfig) (bool, error) {
 
 	da, err := yaml.Marshal(&ca)
 	if err != nil {
-		return false, fmt.Errorf("설정 비교용 마샬링 실패: %w", err)
+		return false, fmt.Errorf("marshal config for comparison: %w", err)
 	}
 	db, err := yaml.Marshal(&cb)
 	if err != nil {
-		return false, fmt.Errorf("설정 비교용 마샬링 실패: %w", err)
+		return false, fmt.Errorf("marshal config for comparison: %w", err)
 	}
 	return !bytes.Equal(da, db), nil
 }
@@ -158,10 +158,10 @@ func differsExceptState(a, b *LatestConfig) (bool, error) {
 func archiveFile(path, backupDir string, now time.Time) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("아카이브 원본 읽기 실패: %w", err)
+		return fmt.Errorf("read archive source: %w", err)
 	}
 	if err := os.MkdirAll(backupDir, 0o755); err != nil {
-		return fmt.Errorf("아카이브 디렉토리 생성 실패: %w", err)
+		return fmt.Errorf("create archive directory: %w", err)
 	}
 
 	// More collisions than this within one second is abnormal; bail out.
@@ -180,18 +180,18 @@ func archiveFile(path, backupDir string, now time.Time) error {
 			if os.IsExist(err) {
 				continue
 			}
-			return fmt.Errorf("아카이브 파일 생성 실패: %w", err)
+			return fmt.Errorf("create archive file: %w", err)
 		}
 
 		_, writeErr := f.Write(data)
 		closeErr := f.Close()
 		if writeErr != nil {
-			return fmt.Errorf("아카이브 파일 저장 실패: %w", writeErr)
+			return fmt.Errorf("write archive file: %w", writeErr)
 		}
 		if closeErr != nil {
-			return fmt.Errorf("아카이브 파일 닫기 실패: %w", closeErr)
+			return fmt.Errorf("close archive file: %w", closeErr)
 		}
 		return nil
 	}
-	return fmt.Errorf("아카이브 파일명 충돌이 %d회를 초과함: %s", maxSuffix, base)
+	return fmt.Errorf("archive filename collisions exceeded %d: %s", maxSuffix, base)
 }

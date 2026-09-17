@@ -48,40 +48,40 @@ func ValidateMapping(mapping []MappingEntry, properties []Property) (warnings []
 	seen := make(map[string]int, len(mapping))
 	for i, m := range mapping {
 		if strings.TrimSpace(m.NotionProperty) == "" {
-			return warnings, fmt.Errorf("mapping[%d]의 notionProperty가 비어 있음", i)
+			return warnings, fmt.Errorf("mapping[%d]: notionProperty is empty", i)
 		}
 
 		hasValue := m.Value != ""
 		hasFrontmatter := m.Frontmatter != ""
 		switch {
 		case hasValue && hasFrontmatter:
-			return warnings, fmt.Errorf("mapping[%d](%s): value와 frontmatter는 동시에 설정할 수 없음", i, m.NotionProperty)
+			return warnings, fmt.Errorf("mapping[%d](%s): value and frontmatter cannot both be set", i, m.NotionProperty)
 		case !hasValue && !hasFrontmatter:
-			return warnings, fmt.Errorf("mapping[%d](%s): value와 frontmatter 중 하나는 설정해야 함", i, m.NotionProperty)
+			return warnings, fmt.Errorf("mapping[%d](%s): one of value or frontmatter must be set", i, m.NotionProperty)
 		case hasValue && (len(m.Values) > 0 || m.Default != ""):
-			return warnings, fmt.Errorf("mapping[%d](%s): value가 설정되면 values/default는 비어야 함", i, m.NotionProperty)
+			return warnings, fmt.Errorf("mapping[%d](%s): values/default must be empty when value is set", i, m.NotionProperty)
 		}
 
 		prop, ok := byName[m.NotionProperty]
 		if !ok {
 			prop, ok = byFold[strings.ToLower(m.NotionProperty)]
 			if !ok {
-				return warnings, fmt.Errorf("mapping[%d]: 노션 속성 %q이 데이터베이스에 없음", i, m.NotionProperty)
+				return warnings, fmt.Errorf("mapping[%d]: Notion property %q not found in the database", i, m.NotionProperty)
 			}
-			warnings = append(warnings, fmt.Sprintf("mapping[%d]: 속성 이름 %q의 대소문자가 실제 속성 %q와 다름, %q로 처리함", i, m.NotionProperty, prop.Name, prop.Name))
+			warnings = append(warnings, fmt.Sprintf("mapping[%d]: property name %q differs from actual property %q in letter case; using %q", i, m.NotionProperty, prop.Name, prop.Name))
 		}
 
 		switch prop.Type {
 		case "title", "date", "url":
-			return warnings, fmt.Errorf("mapping[%d]: %s 타입 속성 %q은 매핑할 수 없음(파이프라인이 파일명에서 파생)", i, prop.Type, prop.Name)
+			return warnings, fmt.Errorf("mapping[%d]: %s property %q cannot be mapped (the pipeline derives it from the filename)", i, prop.Type, prop.Name)
 		case "select", "status", "rich_text":
 			// The only property types v1 can build payloads for.
 		default:
-			return warnings, fmt.Errorf("mapping[%d]: %s 타입 속성 %q은 v1이 지원하지 않음(지원: select, status, rich_text)", i, prop.Type, prop.Name)
+			return warnings, fmt.Errorf("mapping[%d]: %s property %q is not supported in v1 (supported: select, status, rich_text)", i, prop.Type, prop.Name)
 		}
 
 		if first, dup := seen[prop.Name]; dup {
-			warnings = append(warnings, fmt.Sprintf("mapping[%d]: 속성 %q이 mapping[%d]와 중복됨, 이 엔트리는 무시됨", i, prop.Name, first))
+			warnings = append(warnings, fmt.Sprintf("mapping[%d]: property %q duplicates mapping[%d]; this entry is ignored", i, prop.Name, first))
 			continue
 		}
 		seen[prop.Name] = i
@@ -98,7 +98,7 @@ func ValidateDateRules(field string, rules []DateRule) error {
 		hasLayout := strings.TrimSpace(r.FileLayout) != ""
 		hasKey := strings.TrimSpace(r.FrontmatterKey) != ""
 		if hasLayout == hasKey {
-			return fmt.Errorf("%s.dateFrom[%d]는 fileLayout과 frontmatterKey 중 정확히 하나만 설정해야 함", field, i)
+			return fmt.Errorf("%s.dateFrom[%d]: exactly one of fileLayout and frontmatterKey must be set", field, i)
 		}
 		if !hasLayout {
 			continue
@@ -108,7 +108,7 @@ func ValidateDateRules(field string, rules []DateRule) error {
 		// back (month and day digits are ambiguous).
 		ref := time.Date(2006, time.January, 2, 15, 4, 5, 0, time.UTC)
 		if _, err := time.Parse(r.FileLayout, ref.Format(r.FileLayout)); err != nil {
-			return fmt.Errorf("%s.dateFrom[%d].fileLayout %q이 유효한 시간 레이아웃이 아님: %w", field, i, r.FileLayout, err)
+			return fmt.Errorf("%s.dateFrom[%d].fileLayout %q is not a valid time layout: %w", field, i, r.FileLayout, err)
 		}
 	}
 	return nil
